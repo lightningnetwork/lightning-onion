@@ -69,6 +69,23 @@ type MixHeader struct {
 	HopPayload   [NumMaxHops * HopPayloadSize]byte
 }
 
+// GenerateSharedSecret generates a shared secret based on a private key and a
+// public key using Diffie-Hellman key exchange (ECDH) (RFC 4753).
+// This was modified from the btcec library to match the secret generation in
+// libsecp256k1, i.e., it returns the compressed serialization of the pubkey, not
+// just the x-coordinate.
+func GenerateSharedSecret(privkey *btcec.PrivateKey, pubkey *btcec.PublicKey) []byte {
+	x, y := pubkey.Curve.ScalarMult(pubkey.X, pubkey.Y, privkey.D.Bytes())
+
+	var temp [65]byte
+	temp[0] = 0x04
+	copy(temp[1:], x.Bytes())
+	copy(temp[33:], y.Bytes())
+
+	res, _ := btcec.ParsePubKey(temp[:], btcec.S256())
+	return res.SerializeCompressed()
+}
+
 // NewMixHeader creates a new mix header which is capable of
 // obliviously routing a message through the mix-net path outline by
 // 'paymentPath'.  This function returns the created mix header along
@@ -91,7 +108,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
 	hopEphemeralPubKeys[0] = sessionKey.PubKey()
-	hopSharedSecrets[0] = sha256.Sum256(btcec.GenerateSharedSecret(sessionKey, paymentPath[0]))
+	hopSharedSecrets[0] = sha256.Sum256(GenerateSharedSecret(sessionKey, paymentPath[0]))
 	hopBlindingFactors[0] = computeBlindingFactor(hopEphemeralPubKeys[0], hopSharedSecrets[0][:])
 
 	// Now recursively compute the ephemeral ECDH pub keys, the shared
@@ -104,7 +121,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		// s_{n} = sha256( y_{n} x c_{n-1} ) ->
 		// (Y_their_pub_key x x_our_priv) x all prev blinding factors
 		yToX := blindGroupElement(paymentPath[i], sessionKey.D.Bytes())
-		hopSharedSecrets[i] = sha256.Sum256(multiScalarMult(yToX, hopBlindingFactors[:i]).X.Bytes())
+		hopSharedSecrets[i] = sha256.Sum256(multiScalarMult(yToX, hopBlindingFactors[:i]).SerializeCompressed())
 
 		// TODO(roasbeef): prob don't need to store all blinding factors, only the prev...
 		// b_{n} = sha256(a_{n} || s_{n})
@@ -503,7 +520,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	}
 
 	// Compute our shared secret.
-	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(r.onionKey, dhKey))
+	sharedSecret := sha256.Sum256(GenerateSharedSecret(r.onionKey, dhKey))
 
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
