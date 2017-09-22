@@ -13,7 +13,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 )
 
-func newTestRoute(numHops int, d persistlog.DecayedLog) ([]*Router, *[]HopData, *OnionPacket, error) {
+func newTestRoute(numHops int, d *persistlog.DecayedLog) ([]*Router, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numHops random sphinx nodes.
@@ -60,7 +60,7 @@ func newTestRoute(numHops int, d persistlog.DecayedLog) ([]*Router, *[]HopData, 
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		t.Fatalf("unable to start channeldb")
 	}
@@ -126,7 +126,7 @@ func TestSphinxSingleHop(t *testing.T) {
 	// We'd like to test the proper behavior of the correctness of onion
 	// packet processing for "single-hop" payments which bare a full onion
 	// packet.
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		t.Fatalf("unable to start channeldb")
 	}
@@ -153,7 +153,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		t.Fatalf("unable to start channeldb")
 	}
@@ -179,7 +179,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxAssocData(t *testing.T) {
 	// We want to make sure that the associated data is considered in the
 	// HMAC creation
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		t.Fatalf("unable to start channeldb")
 	}
@@ -197,7 +197,7 @@ func TestSphinxAssocData(t *testing.T) {
 func TestSphinxEncodeDecode(t *testing.T) {
 	// Create some test data with a randomly populated, yet valid onion
 	// forwarding message.
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		t.Fatalf("unable to start channeldb")
 	}
