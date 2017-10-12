@@ -8,9 +8,10 @@ import (
 	"encoding/binary"
 	"io"
 	"io/ioutil"
+	"math"
 
 	"github.com/aead/chacha20"
-	"github.com/lightningnetwork/lightning-onion/persistlog"
+	"github.com/Crypt-iQ/lightning-onion/persistlog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -643,7 +644,7 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params,
 // Start starts / opens the DecayedLog's channeldb and its accompanying
 // garbage collector goroutine.
 func (r *Router) Start() error {
-	return r.d.Start()
+	return r.d.Start("")
 }
 
 // Stop stops / closes the DecayedLog's channeldb and its accompanying
@@ -679,7 +680,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	if err != nil {
 		return nil, err
 	}
-	if cltv != 0 {
+	if cltv != math.MaxUint32 {
 		return nil, ErrReplayedPacket
 	}
 
@@ -721,7 +722,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	if err != nil {
 		return nil, err
 	}
-	if cltv != 0 {
+	if cltv != math.MaxUint32 {
 		return nil, ErrReplayedPacket
 	}
 
