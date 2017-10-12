@@ -10,8 +10,8 @@ import (
 	"io/ioutil"
 	"math"
 
-	"github.com/aead/chacha20"
 	"github.com/Crypt-iQ/lightning-onion/persistlog"
+	"github.com/aead/chacha20"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"

@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"testing"
 
+	"github.com/Crypt-iQ/lightning-onion/persistlog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/Crypt-iQ/lightning-onion/persistlog"
-	"os"
 )
 
 func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
