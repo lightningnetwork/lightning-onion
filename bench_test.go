@@ -58,6 +58,8 @@ func BenchmarkProcessPacket(b *testing.B) {
 	if err != nil {
 		b.Fatalf("unable to create test route: %v", err)
 	}
+	path[0].d.Start("0")
+	defer shutdown("0", path[0].d)
 	b.StartTimer()
 
 	var (
@@ -70,7 +72,8 @@ func BenchmarkProcessPacket(b *testing.B) {
 		}
 
 		b.StopTimer()
-		path[0].seenSecrets = make(map[[sharedSecretSize]byte]struct{})
+		shutdown("0", path[0].d)
+		path[0].d.Start("0")
 		b.StartTimer()
 	}
 

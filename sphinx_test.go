@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
 	"testing"
 
+	"github.com/Crypt-iQ/lightning-onion/persistlog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -23,7 +26,7 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 				" random key for sphinx node: %v", err)
 		}
 
-		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams)
+		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams, nil)
 	}
 
 	// Gather all the pub keys in the path.
@@ -55,6 +58,13 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 	return nodes, &hopsData, fwdMsg, nil
 }
 
+// shutdown deletes the temporary directory that the test database uses
+// and handles closing the database.
+func shutdown(dir string, d *persistlog.DecayedLog) {
+	os.RemoveAll(dir)
+	d.Stop()
+}
+
 func TestSphinxCorrectness(t *testing.T) {
 	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
@@ -64,6 +74,11 @@ func TestSphinxCorrectness(t *testing.T) {
 	// Now simulate the message propagating through the mix net eventually
 	// reaching the final destination.
 	for i := 0; i < len(nodes); i++ {
+		// Start each node's DecayedLog and defer shutdown
+		var tempDir = strconv.Itoa(i)
+		nodes[i].d.Start(tempDir)
+		defer shutdown(tempDir, nodes[i].d)
+
 		hop := nodes[i]
 
 		t.Logf("Processing at hop: %v \n", i)
@@ -124,6 +139,10 @@ func TestSphinxSingleHop(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
+
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
 	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil)
@@ -147,6 +166,10 @@ func TestSphinxNodeRelpay(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
+
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
 	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != nil {
@@ -167,6 +190,10 @@ func TestSphinxAssocData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
 
 	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
 		t.Fatalf("we should fail when associated data changes")
