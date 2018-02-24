@@ -44,7 +44,7 @@ func main() {
 		for i := 0; i < len(route); i++ {
 			hopsData = append(hopsData, sphinx.HopData{
 				Realm:         0x00,
-				ForwardAmount: uint32(i),
+				ForwardAmount: uint64(i),
 				OutgoingCltv:  uint32(i),
 			})
 			copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
@@ -90,7 +90,7 @@ func main() {
 		}
 
 		w := bytes.NewBuffer([]byte{})
-		err = p.Packet.Encode(w)
+		err = p.NextPacket.Encode(w)
 
 		if err != nil {
 			log.Fatalf("Error serializing message: %v", err)
