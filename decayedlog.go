@@ -255,7 +255,6 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 				// hash contained from the db.
 				expiredCltv = append(expiredCltv, k)
 				numExpiredHashes++
-				fmt.Println("inc")
 			}
 
 			return nil
