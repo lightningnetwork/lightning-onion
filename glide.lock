@@ -1,5 +1,5 @@
-hash: b61312a18f7859413a3b184845b0d6e3fb27f1c5373b1ba0854dc1c6a133f7d0
-updated: 2018-03-10T18:56:07.245500445-08:00
+hash: db511785ff70036fec795307ca95bfc8f6bae6ff516ad6f9aa969826f70d88f6
+updated: 2018-05-10T08:42:01.03986435+09:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -29,10 +29,6 @@ imports:
   version: 49796115aa4b964c318aad4f3084fdb41e9aa067
   subpackages:
   - ripemd160
-- name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
-  subpackages:
-  - unix
 testImports:
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
