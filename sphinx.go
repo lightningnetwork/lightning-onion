@@ -6,8 +6,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"io"
-	"io/ioutil"
 	"math/big"
 
 	"github.com/aead/chacha20"
@@ -145,62 +145,33 @@ type HopData struct {
 	HMAC [hmacSize]byte
 }
 
-// Encode writes the serialized version of the target HopData into the passed
-// io.Writer.
-func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write([]byte{hd.Realm}); err != nil {
-		return err
+// Encode writes the serialized version of the target HopData into the slice.
+func (hd *HopData) Encode(dst []byte) error {
+	if len(dst) < hopDataSize {
+		errors.New("destination is too small")
 	}
 
-	if _, err := w.Write(hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(paddingBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.HMAC[:]); err != nil {
-		return err
-	}
+	dst[0] = hd.Realm
+	copy(dst[1:], hd.NextAddress[:])
+	binary.BigEndian.PutUint64(dst[1+addressSize:], hd.ForwardAmount)
+	binary.BigEndian.PutUint32(dst[1+addressSize+8:], hd.OutgoingCltv)
+	copy(dst[hopDataSize-hmacSize-padSize:], paddingBytes[:])
+	copy(dst[hopDataSize-hmacSize:], hd.HMAC[:])
 
 	return nil
 }
 
-// Decode deserializes the encoded HopData contained int he passed io.Reader
-// instance to the target empty HopData instance.
-func (hd *HopData) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, []byte{hd.Realm}); err != nil {
-		return err
+// Decode deserializes the encoded HopData contained in the passed slice.
+func (hd *HopData) Decode(src []byte) error {
+	if len(src) < hopDataSize {
+		errors.New("source is too small")
 	}
 
-	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := io.CopyN(ioutil.Discard, r, padSize); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
-		return err
-	}
+	hd.Realm = src[0]
+	copy(hd.NextAddress[:], src[1:])
+	hd.ForwardAmount = binary.BigEndian.Uint64(src[1+addressSize:])
+	hd.OutgoingCltv = binary.BigEndian.Uint32(src[1+addressSize+8:])
+	copy(hd.HMAC[:], src[hopDataSize-hmacSize:])
 
 	return nil
 }
@@ -291,9 +262,8 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 	// Allocate zero'd out byte slices to store the final mix header packet
 	// and the hmac for each hop.
 	var (
-		mixHeader  [routingInfoSize]byte
-		nextHmac   [hmacSize]byte
-		hopDataBuf bytes.Buffer
+		mixHeader [routingInfoSize]byte
+		nextHmac  [hmacSize]byte
 	)
 
 	// Now we compute the routing information for each hop, along with a
@@ -316,17 +286,16 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		streamBytes := generateCipherStream(rhoKey, numStreamBytes)
 
 		// Before we assemble the packet, we'll shift the current
-		// mix-header to the write in order to make room for this next
+		// mix-header to the right in order to make room for this next
 		// per-hop data.
-		rightShift(mixHeader[:], hopDataSize)
+		copy(mixHeader[hopDataSize:], mixHeader[:routingInfoSize-hopDataSize])
 
 		// With the mix header right-shifted, we'll encode the current
 		// hop data into a buffer we'll re-use during the packet
 		// construction.
-		if err := hopsData[i].Encode(&hopDataBuf); err != nil {
+		if err := hopsData[i].Encode(mixHeader[:]); err != nil {
 			return nil, err
 		}
-		copy(mixHeader[:], hopDataBuf.Bytes())
 
 		// Once the packet for this hop has been assembled, we'll
 		// re-encrypt the packet by XOR'ing with a stream of bytes
@@ -345,8 +314,6 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		// prevent replay attacks.
 		packet := append(mixHeader[:], assocData...)
 		nextHmac = calcMac(muKey, packet)
-
-		hopDataBuf.Reset()
 	}
 
 	return &OnionPacket{
@@ -355,18 +322,6 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		RoutingInfo:  mixHeader,
 		HeaderMAC:    nextHmac,
 	}, nil
-}
-
-// Shift the byte-slice by the given number of bytes to the right and 0-fill
-// the resulting gap.
-func rightShift(slice []byte, num int) {
-	for i := len(slice) - num - 1; i >= 0; i-- {
-		slice[num+i] = slice[i]
-	}
-
-	for i := 0; i < num; i++ {
-		slice[i] = 0
-	}
 }
 
 // generateHeaderPadding derives the bytes for padding the mix header to ensure
@@ -760,7 +715,7 @@ func processOnionPacket(onionPkt *OnionPacket,
 	// out the per-hop data so we can derive the specified forwarding
 	// instructions.
 	var hopData HopData
-	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+	if err := hopData.Decode(hopInfo[:]); err != nil {
 		return nil, err
 	}
 
