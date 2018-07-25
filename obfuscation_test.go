@@ -137,7 +137,7 @@ func getSpecPubKeys() ([]*btcec.PublicKey, error) {
 	}
 
 	keys := make([]*btcec.PublicKey, len(specPubKeys))
-	for i, sKey := range specPubKeys {
+	for sKey := range specPubKeys {
 		bKey, err := hex.DecodeString(sKey)
 		if err != nil {
 			return nil, err
