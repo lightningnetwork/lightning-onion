@@ -99,6 +99,12 @@ func main() {
 		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params,
 			sphinx.NewMemoryReplayLog())
 
+		// start router (create memory log)
+		err = s.Start()
+		if err != nil {
+			log.Fatalf("Error starting router: %v", err)
+		}
+
 		var packet sphinx.OnionPacket
 		err = packet.Decode(bytes.NewBuffer(binMsg))
 
