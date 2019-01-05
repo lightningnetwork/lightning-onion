@@ -121,7 +121,7 @@ type OnionPacket struct {
 type HopData struct {
 	// Realm denotes the "real" of target chain of the next hop. For
 	// bitcoin, this value will be 0x00.
-	Realm byte
+	Realm [1]byte
 
 	// NextAddress is the address of the next hop that this packet should
 	// be forward to.
@@ -153,7 +153,7 @@ type HopData struct {
 // Encode writes the serialized version of the target HopData into the passed
 // io.Writer.
 func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write([]byte{hd.Realm}); err != nil {
+	if _, err := w.Write(hd.Realm[:]); err != nil {
 		return err
 	}
 
@@ -183,7 +183,7 @@ func (hd *HopData) Encode(w io.Writer) error {
 // Decode deserializes the encoded HopData contained int he passed io.Reader
 // instance to the target empty HopData instance.
 func (hd *HopData) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, []byte{hd.Realm}); err != nil {
+	if _, err := io.ReadFull(r, hd.Realm[:]); err != nil {
 		return err
 	}
 
