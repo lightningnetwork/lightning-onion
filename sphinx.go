@@ -271,8 +271,32 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	assocData []byte) (*OnionPacket, error) {
 
-	numHops := paymentPath.TrueRouteLength()
+	// Next, taking into account the number of hops it would take to encode
+	// all the extra data, we'll ensure that we can properly pack in a
+	// regular 20 hop packet.
+	err := paymentPath.ValidatePayloadSanity()
+	if err != nil {
+		return nil, err
+	}
 
+	// Now that we know we are exceeding any of the hop (length and
+	// unrolled including data) limits, we'll check to see if we need to
+	// unroll the path at all.
+	if paymentPath.HasExtraData() {
+		// In this case, the caller has inserted some extra data for
+		// one or more hops, as a result, we'll unroll those hops that
+		// pack additional data into an extended route we can run our
+		// regular packet construction algorithm on.
+		paymentPath, err = paymentPath.UnrollExtraDataHops()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// The number of total hops is the number of hops *afer* we (maybe)
+	// unroll our path into a longer one to encode any EOB data within
+	// virtual hop extra data fields.
+	numHops := paymentPath.TrueRouteLength()
 
 	hopSharedSecrets := generateSharedSecrets(
 		paymentPath.NodeKeys(), sessionKey,
@@ -292,7 +316,9 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	)
 
 	// Now we compute the routing information for each hop, along with a
-	// MAC of the routing info using the shared key for that hop.
+	// MAC of the routing info using the shared key for that hop. We use
+	// the true size of the possibly expanded path to ensure we properly
+	// encode each hop.
 	for i := numHops - 1; i >= 0; i-- {
 		// We'll derive the two keys we need for each hop in order to:
 		// generate our stream cipher bytes for the mixHeader, and
