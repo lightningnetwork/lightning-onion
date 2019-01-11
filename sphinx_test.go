@@ -502,3 +502,248 @@ func TestSphinxEncodeDecode(t *testing.T) {
 			spew.Sdump(fwdMsg), spew.Sdump(newFwdMsg))
 	}
 }
+
+func newEOBRoute(numHops uint32,
+	eobMapping map[int]ExtraHopData) (*OnionPacket, []*Router, error) {
+
+	nodes := make([]*Router, numHops)
+
+	// First, we'll assemble a set of routers that will consume all the
+	// hops we create in this path.
+	for i := 0; i < len(nodes); i++ {
+		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			return nil, nil, fmt.Errorf("Unable to generate "+
+				"random key for sphinx node: %v", err)
+		}
+
+		nodes[i] = NewRouter(
+			privKey, &chaincfg.MainNetParams, NewMemoryReplayLog(),
+		)
+	}
+
+	// Next we'll gather all the pubkeys in the path, checking our eob
+	// mapping to see which hops need an extra payload.
+	var (
+		route PaymentPath
+	)
+	for i := 0; i < len(nodes); i++ {
+		hopData := HopData{
+			Realm:         [1]byte{0x00},
+			ForwardAmount: uint64(i),
+			OutgoingCltv:  uint32(i),
+		}
+
+		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
+
+		route[i] = OnionHop{
+			NodePub: *nodes[i].onionKey.PubKey(),
+			HopData: hopData,
+		}
+
+		// If this hop has any EOB data that needs unrolling in the
+		// final route, then we'll set it now.
+		if eobData, ok := eobMapping[i]; ok {
+			route[i].ExtraData = eobData
+		}
+	}
+
+	// Generate a forwarding message to route to the final node via the
+	// generated intermdiates nodes above.  Destination should be Hash160,
+	// adding padding so parsing still works.
+	sessionKey, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
+	)
+	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create forwarding "+
+			"message: %#v", err)
+	}
+
+	return fwdMsg, nodes, nil
+}
+
+// TestSphinxHopEOB tests that we're able to fully decode an EOB payload that
+// was targeted at the final hop in a route, and also when intermediate nodes
+// have EOB data encoded as well.
+func TestSphinxHopEOB(t *testing.T) {
+	t.Parallel()
+
+	var testCases = []struct {
+		numNodes   uint32
+		eobMapping map[int]ExtraHopData
+	}{
+		// A single hop route with a payload going to the last hop in the
+		// route. The payload is enough to fit into a single pivot hop.
+		{
+			numNodes: 1,
+			eobMapping: map[int]ExtraHopData{
+				0: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), PivotHopDataSize),
+				},
+			},
+		},
+
+		// A single hop route where the payload to the final node needs to
+		// consume both a pivot hop as well as a series of full hops.
+		{
+			numNodes: 1,
+			eobMapping: map[int]ExtraHopData{
+				0: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), UnrolledHopDataSize*2),
+				},
+			},
+		},
+
+		// A two hop route, so one going over 3 nodes, with the sender
+		// encrypting a payload to the final node. The payload of the final
+		// node is small enough to only fit into a single pivot hop.
+		{
+			numNodes: 2,
+			eobMapping: map[int]ExtraHopData{
+				1: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), PivotHopDataSize),
+				},
+			},
+		},
+
+		// Similar case to that of above, but the payload of the final node
+		// needs to consume multiple hops.
+		{
+			numNodes: 2,
+			eobMapping: map[int]ExtraHopData{
+				1: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), UnrolledHopDataSize*2),
+				},
+			},
+		},
+
+		// A 3 hop route (4 nodes) with each node receiving a payload
+		// that can fit into their single pivot hop.
+		{
+			numNodes: 3,
+			eobMapping: map[int]ExtraHopData{
+				0: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), PivotHopDataSize),
+				},
+				1: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), PivotHopDataSize),
+				},
+				2: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), PivotHopDataSize),
+				},
+			},
+		},
+
+		// A 3 hop route (4 nodes) with each node receiving a payload
+		// that requires both a pivot and full hop.
+		{
+			numNodes: 3,
+			eobMapping: map[int]ExtraHopData{
+				0: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), UnrolledHopDataSize*2),
+				},
+				1: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), UnrolledHopDataSize*2),
+				},
+				2: ExtraHopData{
+					Type:           EOBSphinxSend,
+					ExtraOnionBlob: bytes.Repeat([]byte("a"), UnrolledHopDataSize*2),
+				},
+			},
+		},
+	}
+
+	for testCaseNum, testCase := range testCases {
+		nextPkt, routers, err := newEOBRoute(
+			testCase.numNodes, testCase.eobMapping,
+		)
+		if err != nil {
+			t.Fatalf("#%v: unable to create eob "+
+				"route: %v", testCase, err)
+		}
+
+		// We'll now walk thru manually each actual hop within the
+		// route. We use the size of the routers rather than the number
+		// of hops here as virtual EOB hops may have been inserted into
+		// the route.
+		for i := 0; i < len(routers); i++ {
+			// Start each node's ReplayLog and defer shutdown
+			routers[i].log.Start()
+			defer routers[i].log.Stop()
+
+			currentHop := routers[i]
+
+			// Ensure that this hop is able to properly process
+			// this onion packet. If additional EOB hops were
+			// added, then it should be able to properly decrypt
+			// all the layers and pass them on to the next node
+			// properly.
+			processedPacket, err := currentHop.ProcessOnionPacket(
+				nextPkt, nil, uint32(i),
+			)
+			if err != nil {
+				t.Fatalf("#%v: unable to process packet at "+
+					"hop #%v: %v", testCaseNum, i, err)
+			}
+
+			// If this hop is expected to have EOB data, then we'll
+			// check now to ensure the bytes were properly
+			// recovered on the other end.
+			if eobData, ok := testCase.eobMapping[i]; ok {
+				if !reflect.DeepEqual(
+					eobData, processedPacket.ExtraData,
+				) {
+					t.Fatalf("#%v: eob mismatch: expected "+
+						"%v, got %v", testCaseNum,
+						spew.Sdump(eobData),
+						spew.Sdump(processedPacket.ExtraData))
+				}
+			}
+
+			// If this is the last node (but not necessarily hop
+			// due to EOB expansion), then it should recognize that
+			// it's the exit node.
+			if i == len(routers)-1 {
+				if processedPacket.Action != ExitNode {
+					t.Fatalf("#%v: Processing error, "+
+						"node %v is the last hop in "+
+						"the path, yet it doesn't "+
+						"recognize so", testCaseNum, i)
+				}
+				continue
+			}
+
+			// If this isn't the last node in the path, then the
+			// returned action should indicate that there are more
+			// hops to go.
+			if processedPacket.Action != MoreHops {
+				t.Fatalf("#%v: Processing error, node %v is "+
+					"not the final hop, yet thinks it is.",
+					testCaseNum, i)
+			}
+
+			// The next hop should have been parsed as node[i+1].
+			parsedNextHop := processedPacket.ForwardingInstructions.NextAddress[:]
+			expected := bytes.Repeat([]byte{byte(i)}, AddressSize)
+			if !bytes.Equal(parsedNextHop, expected) {
+				t.Fatalf("#%v: Processing error, next hop parsed "+
+					"incorrectly. next hop should be %v, "+
+					"was instead parsed as %v", testCaseNum,
+					hex.EncodeToString(expected),
+					hex.EncodeToString(parsedNextHop))
+			}
+
+			nextPkt = processedPacket.NextPacket
+		}
+	}
+}

@@ -562,20 +562,84 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		return nil, err
 	}
 
+	var (
+		// innerHopData is the hop data of any inner onion packets we
+		// may or may not need to unwrap. We only pass the outer hop
+		// data to the next hop, so this will only be used for
+		// unpacking EOBs.
+		innerHopData *HopData = outerHopData
+
+		// eob will house the data for any EOBs that we uncover while
+		// we unwrap packets.
+		eob ExtraHopData
+	)
+
+	// If this outer most hop data has a non-empty type, then that means we
+	// at least need to read the pivot hop bytes and store the EOB type
+	// within the EOB struct.
+	if outerHopData.ExtraOnionBlobType() != EOBEmpty {
+		if err := eob.UnpackPivotHop(outerHopData); err != nil {
+			return nil, err
+		}
+	}
+
+	// If this hop has any unrolled additional data within extra onion
+	// blobs, then we'll need to continue unwrapping the packet in order to
+	// fully unpack all the encoded EOBs.
+	for hopsConsumed := 0; innerHopData.HasMoreEOBs(hopsConsumed == 0); hopsConsumed++ {
+		// We'll now construct a special inner EOB onion packet. This
+		// will have the same version as the outer packet, but use the
+		// DH key, routing info of the unwrapped inner packet (which
+		// usually goes straight to the next hop), and the HMAC within
+		// our hop data (which usually has no more use as its only for
+		// us to check the integrity of the next onion packet).
+		eobPkt := &OnionPacket{
+			Version:      onionPkt.Version,
+			EphemeralKey: innerPkt.EphemeralKey,
+			RoutingInfo:  innerPkt.RoutingInfo,
+			HeaderMAC:    innerHopData.HMAC,
+		}
+
+		// With the onion packet constructed, we'll generate the shared
+		// secret we're to use for the next hop, and then unwrap
+		// another layer of the onion in order to obtain the inner
+		// packet and the inner hop data we'll extract out EOB fragment
+		// from.
+		nextSharedSecret, err := sharedSecretGen.generateSharedSecret(
+			eobPkt.EphemeralKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		innerPkt, innerHopData, err = unwrapPacket(
+			eobPkt, &nextSharedSecret, assocData,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// With another layer unwrapped, we'll now accumulate a full
+		// EOB fragment.
+		if err := eob.UnpackFullHop(innerHopData); err != nil {
+			return nil, err
+		}
+	}
+
 	// By default we'll assume that there are additional hops in the route.
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], outerHopData.HMAC[:]) == 0 {
+	if bytes.Compare(zeroHMAC[:], innerHopData.HMAC[:]) == 0 {
 		action = ExitNode
 	}
 
-	)
-
-	}
-
-
-
-	}
-
+	// Finally, we'll return a fully processed packet with the outer most
+	// hop data (where the primary forwarding instructions lie) and the
+	// inner most onion packet that we unwrapped.
+	return &ProcessedPacket{
+		Action:                 action,
+		ForwardingInstructions: *outerHopData,
+		NextPacket:             innerPkt,
+		ExtraData:              eob,
+	}, nil
 }
