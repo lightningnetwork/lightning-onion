@@ -43,8 +43,13 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	b.ReportAllocs()
 	b.StartTimer()
 
+	path, err := NewPaymentPath(route, hopsData)
+	if err != nil {
+		b.Fatalf("unable to create payment path: %v", err)
+	}
+
 	for i := 0; i < b.N; i++ {
-		sphinxPacket, err = NewOnionPacket(route, d, hopsData, nil)
+		sphinxPacket, err = NewOnionPacket(path, d, nil)
 		if err != nil {
 			b.Fatalf("unable to create packet: %v", err)
 		}
@@ -55,34 +60,34 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 
 func BenchmarkProcessPacket(b *testing.B) {
 	b.StopTimer()
-	path, _, sphinxPacket, err := newTestRoute(1)
+	_, nodes, sphinxPacket, err := newTestRoute(1)
 	if err != nil {
 		b.Fatalf("unable to create test route: %v", err)
 	}
 	b.ReportAllocs()
-	path[0].log.Start()
-	defer path[0].log.Stop()
+	nodes[0].log.Start()
+	defer nodes[0].log.Stop()
 	b.StartTimer()
 
 	var (
 		pkt *ProcessedPacket
 	)
 	for i := 0; i < b.N; i++ {
-		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil, uint32(i))
+		pkt, err = nodes[0].ProcessOnionPacket(sphinxPacket, nil, uint32(i))
 		if err != nil {
 			b.Fatalf("unable to process packet %d: %v", i, err)
 		}
 
 		b.StopTimer()
-		router := path[0]
+		router := nodes[0]
 		router.log.Stop()
-		path[0] = &Router{
+		nodes[0] = &Router{
 			nodeID:   router.nodeID,
 			nodeAddr: router.nodeAddr,
 			onionKey: router.onionKey,
 			log:      NewMemoryReplayLog(),
 		}
-		path[0].log.Start()
+		nodes[0].log.Start()
 		b.StartTimer()
 	}
 
