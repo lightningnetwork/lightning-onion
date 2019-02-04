@@ -2,7 +2,9 @@ package sphinx
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -59,12 +61,13 @@ func NewPaymentPath(nodeIds []*btcec.PublicKey, hopsData []HopData) (*PaymentPat
 	}
 
 	for i := range nodeIds {
+		var buf bytes.Buffer
 		paymentPath[i].NodePub = *nodeIds[i]
 		paymentPath[i].HopData = hopsData[i]
-		// FIXME: use HopData.Encode to fill in the real payload
+		hopsData[i].Encode(&buf)
 		paymentPath[i].HopPayload = HopPayload{
 			Realm:   [1]byte{hopsData[i].Realm},
-			Payload: bytes.Repeat([]byte{0x00}, 32),
+			Payload: buf.Bytes(),
 		}
 	}
 	return &paymentPath, nil
@@ -138,4 +141,85 @@ func (hp *HopPayload) CountFrames() int {
 
 func (hp *HopPayload) CalculateRealm() {
 	hp.Realm[0] = (hp.Realm[0] & 0x0F) | (byte(hp.CountFrames()-1) << 4)
+}
+
+func (hp *HopPayload) Encode(w io.Writer) error {
+	// We'll need to add enough padding bytes to position the HMAC
+	// at the end of the payload
+	padding := hp.CountFrames()*65 - len(hp.Payload) - 1 - 32
+	if padding < 0 {
+		panic("Can't have negative padding")
+	}
+	hp.CalculateRealm()
+
+	if _, err := w.Write(hp.Realm[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(hp.Payload); err != nil {
+		return err
+	}
+
+	if padding > 0 {
+		w.Write(bytes.Repeat([]byte{0x00}, padding))
+	}
+
+	if _, err := w.Write(hp.HMAC[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (hp *HopPayload) Decode(r io.Reader) error {
+	if _, err := io.ReadFull(r, hp.Realm[:]); err != nil {
+		return err
+	}
+
+	numFrames := int(hp.Realm[0]>>4) + 1
+	numBytes := (numFrames * hopDataSize) - 32 - 1
+
+	hp.Payload = make([]byte, numBytes)
+
+	if _, err := io.ReadFull(r, hp.Payload[:]); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, hp.HMAC[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (hp *HopPayload) HopData() (*HopData, error) {
+	if hp.Realm[0] != 0x00 {
+		// This is not a legacy HopData, so we can't interpret
+		// it as such
+		return nil, fmt.Errorf("payload is not a HopData payload, realm=%d", hp.Realm[0])
+	}
+
+	hd := HopData{
+		Realm: hp.Realm[0],
+		HMAC:  hp.HMAC,
+	}
+
+	// Parse the actual payload
+	r := bytes.NewBuffer(hp.Payload)
+	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
+		return nil, err
+	}
+	return &hd, nil
 }

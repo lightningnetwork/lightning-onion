@@ -172,10 +172,6 @@ type HopData struct {
 // Encode writes the serialized version of the target HopData into the passed
 // io.Writer.
 func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write([]byte{hd.Realm}); err != nil {
-		return err
-	}
-
 	if _, err := w.Write(hd.NextAddress[:]); err != nil {
 		return err
 	}
@@ -191,41 +187,6 @@ func (hd *HopData) Encode(w io.Writer) error {
 	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
 		return err
 	}
-
-	if _, err := w.Write(hd.HMAC[:]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Decode deserializes the encoded HopData contained int he passed io.Reader
-// instance to the target empty HopData instance.
-func (hd *HopData) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, []byte{hd.Realm}); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -332,7 +293,7 @@ func NewOnionPacket(path *PaymentPath, sessionKey *btcec.PrivateKey, assocData [
 		// The HMAC for the final hop is simply zeroes. This allows the
 		// last hop to recognize that it is the destination for a
 		// particular payment.
-		path[i].HopData.HMAC = nextHmac
+		path[i].HopPayload.HMAC = nextHmac
 
 		// Next, using the key dedicated for our stream cipher, we'll
 		// generate enough bytes to obfuscate this layer of the onion
@@ -347,9 +308,10 @@ func NewOnionPacket(path *PaymentPath, sessionKey *btcec.PrivateKey, assocData [
 		// With the mix header right-shifted, we'll encode the current
 		// hop data into a buffer we'll re-use during the packet
 		// construction.
-		if err := path[i].HopData.Encode(&hopDataBuf); err != nil {
+		if err := path[i].HopPayload.Encode(&hopDataBuf); err != nil {
 			return nil, err
 		}
+
 		copy(mixHeader[:], hopDataBuf.Bytes())
 
 		// Once the packet for this hop has been assembled, we'll
@@ -630,7 +592,12 @@ type ProcessedPacket struct {
 	//
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
-	ForwardingInstructions HopData
+	ForwardingInstructions *HopData
+
+	// The raw (plaintext) payload that was passed to the
+	// processing node in the onion packet. It provides accessors
+	// to get the parsed and interpreted data.
+	Payload HopPayload
 
 	// NextPacket is the onion packet that should be forwarded to the next
 	// hop as denoted by the ForwardingInstructions field.
@@ -780,11 +747,11 @@ func processOnionPacket(onionPkt *OnionPacket,
 	blindingFactor := computeBlindingFactor(dhKey, sharedSecret[:])
 	nextDHKey := blindGroupElement(dhKey, blindingFactor[:])
 
-	// With the MAC checked, and the payload decrypted, we can now parse
-	// out the per-hop data so we can derive the specified forwarding
-	// instructions.
-	var hopData HopData
-	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+	// With the MAC checked, and the payload decrypted, we can now
+	// parse out the payload so we can derive the specified
+	// forwarding instructions.
+	var hopPayload HopPayload
+	if err := hopPayload.Decode(bytes.NewReader(hopInfo[:])); err != nil {
 		return nil, err
 	}
 
@@ -796,20 +763,23 @@ func processOnionPacket(onionPkt *OnionPacket,
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
 		RoutingInfo:  nextMixHeader,
-		HeaderMAC:    hopData.HMAC,
+		HeaderMAC:    hopPayload.HMAC,
 	}
 
 	// By default we'll assume that there are additional hops in the route.
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], hopData.HMAC[:]) == 0 {
+	if bytes.Compare(zeroHMAC[:], hopPayload.HMAC[:]) == 0 {
 		action = ExitNode
 	}
+
+	hopData, _ := hopPayload.HopData()
 
 	return &ProcessedPacket{
 		Action:                 action,
 		ForwardingInstructions: hopData,
+		Payload:                hopPayload,
 		NextPacket:             nextFwdMsg,
 	}, nil
 }
