@@ -21,14 +21,62 @@ const (
 	// during onion creation as well as during the verification.
 	hmacSize = 32
 
+	// NumMaxHops is the the maximum path length. This should be set to an
+	// estiamate of the upper limit of the diameter of the node graph.
+	NumMaxHops = 20
+
+	// A frame is a region of contiguous memory in the onion that
+	// can be used to store a payload in. Each hop may use a
+	// discrete number of frames for its payload. There are two
+	// parts of the payload that are fixed: a) the first byte in
+	// the first frame is the realm-byte, which tells us how many
+	// frames the current payload uses and how the payload should
+	// be parsed, and b) the last 32 bytes of the last frame are
+	// the HMAC that should be passed to the next hop, or 0 in
+	// case of the last hop. Bytes between these two points can be
+	// freely used to store the actual payload.
+	frameSize = 65
+
+	// The maximum size a payload for a single hop can be. This is
+	// the worst case scenario of a single hop, consuming all 20
+	// frames. We need to know this in order to generate a
+	// sufficiently long stream of pseudo-random bytes when
+	// encrypting/decrypting the payload.
+	maxPayloadSize = NumMaxHops * frameSize
+
+	// sharedSecretSize is the size in bytes of the shared secrets.
+	sharedSecretSize = 32
+
+	// routingInfoSize is the fixed size of the the routing info. This
+	// consists of a addressSize byte address and a hmacSize byte HMAC for
+	// each hop of the route, the first pair in cleartext and the following
+	// pairs increasingly obfuscated. In case fewer than numMaxHops are
+	// used, then the remainder is padded with null-bytes, also obfuscated.
+	routingInfoSize = NumMaxHops * frameSize
+
+	// numStreamBytes is the number of bytes produced by our CSPRG
+	// for the key stream implementing our stream cipher to
+	// encrypt/decrypt the mix header. The maxPayloadSize bytes at
+	// the end are used to encrypt/decrypt the fillers when
+	// processing the packet of generating the HMACs when creating
+	// the packet.
+	numStreamBytes = routingInfoSize + maxPayloadSize
+
+	// keyLen is the length of the keys used to generate cipher streams and
+	// encrypt payloads. Since we use SHA256 to generate the keys, the
+	// maximum length currently is 32 bytes.
+	keyLen = 32
+
+	// baseVersion represent the current supported version of onion packet.
+	baseVersion = 0
+)
+
+// The following are constants that relate to the legacy HopData format
+const (
 	// addressSize is the length of the serialized address used to uniquely
 	// identify the next hop to forward the onion to. BOLT 04 defines this
 	// as 8 byte channel_id.
 	addressSize = 8
-
-	// NumMaxHops is the the maximum path length. This should be set to an
-	// estiamate of the upper limit of the diameter of the node graph.
-	NumMaxHops = 20
 
 	// padSize is the number of padding bytes in the hopData. These bytes
 	// are currently unused within the protocol, and are reserved for
@@ -40,30 +88,6 @@ const (
 	// to forward, 4 byte outgoing CLTV value, 12 bytes padding and 32
 	// bytes HMAC for a total of 65 bytes per hop.
 	hopDataSize = (1 + addressSize + 8 + 4 + padSize + hmacSize)
-
-	// sharedSecretSize is the size in bytes of the shared secrets.
-	sharedSecretSize = 32
-
-	// routingInfoSize is the fixed size of the the routing info. This
-	// consists of a addressSize byte address and a hmacSize byte HMAC for
-	// each hop of the route, the first pair in cleartext and the following
-	// pairs increasingly obfuscated. In case fewer than numMaxHops are
-	// used, then the remainder is padded with null-bytes, also obfuscated.
-	routingInfoSize = NumMaxHops * hopDataSize
-
-	// numStreamBytes is the number of bytes produced by our CSPRG for the
-	// key stream implementing our stream cipher to encrypt/decrypt the mix
-	// header. The last hopDataSize bytes are only used in order to
-	// generate/check the MAC over the header.
-	numStreamBytes = routingInfoSize + hopDataSize
-
-	// keyLen is the length of the keys used to generate cipher streams and
-	// encrypt payloads. Since we use SHA256 to generate the keys, the
-	// maximum length currently is 32 bytes.
-	keyLen = 32
-
-	// baseVersion represent the current supported version of onion packet.
-	baseVersion = 0
 )
 
 // Hash256 is a statically sized, 32-byte array, typically containing
@@ -285,7 +309,7 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 	hopSharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
 
 	// Generate the padding, called "filler strings" in the paper.
-	filler := generateHeaderPadding("rho", numHops, hopDataSize,
+	filler := generateHeaderPadding("rho", numHops, frameSize,
 		hopSharedSecrets)
 
 	// Allocate zero'd out byte slices to store the final mix header packet
@@ -318,7 +342,7 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		// Before we assemble the packet, we'll shift the current
 		// mix-header to the write in order to make room for this next
 		// per-hop data.
-		rightShift(mixHeader[:], hopDataSize)
+		rightShift(mixHeader[:], frameSize)
 
 		// With the mix header right-shifted, we'll encode the current
 		// hop data into a buffer we'll re-use during the packet
@@ -746,7 +770,7 @@ func processOnionPacket(onionPkt *OnionPacket,
 		numStreamBytes,
 	)
 	headerWithPadding := append(routeInfo[:],
-		bytes.Repeat([]byte{0}, hopDataSize)...)
+		bytes.Repeat([]byte{0}, frameSize)...)
 
 	var hopInfo [numStreamBytes]byte
 	xor(hopInfo[:], headerWithPadding, streamBytes)
@@ -767,7 +791,7 @@ func processOnionPacket(onionPkt *OnionPacket,
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	copy(nextMixHeader[:], hopInfo[hopDataSize:])
+	copy(nextMixHeader[:], hopInfo[frameSize:])
 	nextFwdMsg := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
