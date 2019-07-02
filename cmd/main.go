@@ -23,7 +23,24 @@ func main() {
 	assocData := bytes.Repeat([]byte{'B'}, 32)
 
 	if len(args) == 1 {
-		fmt.Printf("Usage: %s (generate|decode) <private-keys>\n", args[0])
+		fmt.Printf("Usage: %s (new|generate|decode) <private-keys>\n", args[0])
+	} else if args[1] == "new" {
+		// generate a new private key
+		privKey1, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			fmt.Printf("private key generation error: %s\n", err)
+			return
+		}
+
+		privHex := hex.EncodeToString(privKey1.Serialize())
+		fmt.Printf("privkey: %s\n", privHex)
+
+		// get public key from private key
+		pub := privKey1.PubKey().SerializeCompressed()
+
+		// covert publick key to hex and print
+		pubHex := hex.EncodeToString(pub)
+		fmt.Printf("pubkey: %s\n", pubHex)
 	} else if args[1] == "generate" {
 		var path sphinx.PaymentPath
 		for i, hexKey := range args[2:] {
@@ -80,6 +97,12 @@ func main() {
 		privkey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
 		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params,
 			sphinx.NewMemoryReplayLog())
+
+		// start router (create memory log)
+		err = s.Start()
+		if err != nil {
+			log.Fatalf("Error starting router: %v", err)
+		}
 
 		var packet sphinx.OnionPacket
 		err = packet.Decode(bytes.NewBuffer(binMsg))
