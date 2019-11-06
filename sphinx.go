@@ -190,14 +190,26 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 // NewOnionPacket creates a new onion packet which is capable of obliviously
 // routing a message through the mix-net path outline by 'paymentPath'.
 func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
-	assocData []byte) (*OnionPacket, error) {
+	assocData []byte, pktFiller PacketFiller) (*OnionPacket, error) {
 
 	// Check whether total payload size doesn't exceed the hard maximum.
 	if paymentPath.TotalPayloadSize() > routingInfoSize {
 		return nil, ErrMaxRoutingInfoSizeExceeded
 	}
 
+	// If we don't actually have a partially populated route, then we'll
+	// exit early.
 	numHops := paymentPath.TrueRouteLength()
+	if numHops == 0 {
+		return nil, fmt.Errorf("route of length zero passed in")
+	}
+
+	// We'll force the caller to provide a packet filler, as otherwise we
+	// may default to an insecure filling method (which should only really
+	// be used to generate test vectors).
+	if pktFiller == nil {
+		return nil, fmt.Errorf("packet filler must be specified")
+	}
 
 	hopSharedSecrets := generateSharedSecrets(
 		paymentPath.NodeKeys(), sessionKey,
@@ -213,6 +225,11 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		nextHmac      [HMACSize]byte
 		hopPayloadBuf bytes.Buffer
 	)
+
+	// Fill the packet using the caller specified methodology.
+	if err := pktFiller(sessionKey, &mixHeader); err != nil {
+		return nil, err
+	}
 
 	// Now we compute the routing information for each hop, along with a
 	// MAC of the routing info using the shared key for that hop.
@@ -232,7 +249,6 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// generate enough bytes to obfuscate this layer of the onion
 		// packet.
 		streamBytes := generateCipherStream(rhoKey, routingInfoSize)
-
 		payload := paymentPath[i].HopPayload
 
 		// Before we assemble the packet, we'll shift the current

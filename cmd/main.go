@@ -105,7 +105,10 @@ func main() {
 			log.Fatalf("could not parse onion spec: %v", err)
 		}
 
-		msg, err := sphinx.NewOnionPacket(path, sessionKey, assocData)
+		msg, err := sphinx.NewOnionPacket(
+			path, sessionKey, assocData,
+			sphinx.DeterministicPacketFiller,
+		)
 		if err != nil {
 			log.Fatalf("Error creating message: %v", err)
 		}
