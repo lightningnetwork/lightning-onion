@@ -127,9 +127,6 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// Compute the triplet for the first hop outside of the main loop.
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
-	lastEphemeralPubKey := sessionKey.PubKey()
-	hopSharedSecrets[0] = generateSharedSecret(paymentPath[0], sessionKey)
-	lastBlindingFactor := computeBlindingFactor(lastEphemeralPubKey, hopSharedSecrets[0][:])
 
 	// The cached blinding factor will contain the running product of the
 	// session private key x and blinding factors b_i, computed as
@@ -141,29 +138,18 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// c_0 = x. At the beginning of each iteration, the previous blinding
 	// factor is aggregated into the modular product, and used as the scalar
 	// value in deriving the hop ephemeral keys and shared secrets.
-	var cachedBlindingFactor big.Int
-	cachedBlindingFactor.SetBytes(sessionKey.D.Bytes())
+	var cachedEphemeralPrivKey big.Int
+	cachedEphemeralPrivKey.SetBytes(sessionKey.D.Bytes())
 
 	// Now recursively compute the cached blinding factor, ephemeral ECDH
 	// pub keys, and shared secret for each hop.
-	var nextBlindingFactor big.Int
-	for i := 1; i <= numHops-1; i++ {
-		// Update the cached blinding factor with b_{i-1}.
-		nextBlindingFactor.SetBytes(lastBlindingFactor[:])
-		cachedBlindingFactor.Mul(&cachedBlindingFactor, &nextBlindingFactor)
-		cachedBlindingFactor.Mod(&cachedBlindingFactor, btcec.S256().Params().N)
-
-		// a_i = g ^ c_i
-		//     = g^( x * b_0 * ... * b_{i-1} )
-		//     = X^( b_0 * ... * b_{i-1} )
-		// X_our_session_pub_key x all prev blinding factors
-		lastEphemeralPubKey = blindBaseElement(cachedBlindingFactor.Bytes())
+	for i := 0; i <= numHops-1; i++ {
 
 		// e_i = Y_i ^ c_i
 		//     = ( Y_i ^ x )^( b_0 * ... * b_{i-1} )
 		// (Y_their_pub_key x x_our_priv) x all prev blinding factors
 		hopBlindedPubKey := blindGroupElement(
-			paymentPath[i], cachedBlindingFactor.Bytes(),
+			paymentPath[i], cachedEphemeralPrivKey.Bytes(),
 		)
 
 		// s_i = sha256( e_i )
@@ -175,10 +161,23 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 			break
 		}
 
+		// a_i = g ^ c_i
+		//     = g^( x * b_0 * ... * b_{i-1} )
+		//     = X^( b_0 * ... * b_{i-1} )
+		// X_our_session_pub_key x all prev blinding factors
+		var lastEphemeralPubKey = blindBaseElement(cachedEphemeralPrivKey.Bytes())
+
 		// b_i = sha256( a_i || s_i )
-		lastBlindingFactor = computeBlindingFactor(
+		var blindingFactorBytes = computeBlindingFactor(
 			lastEphemeralPubKey, hopSharedSecrets[i][:],
 		)
+
+		var nextBlindingFactor big.Int
+		nextBlindingFactor.SetBytes(blindingFactorBytes[:])
+
+		// Update the cached private key with the next blinding factor.
+		cachedEphemeralPrivKey.Mul(&cachedEphemeralPrivKey, &nextBlindingFactor)
+		cachedEphemeralPrivKey.Mod(&cachedEphemeralPrivKey, btcec.S256().Params().N)
 	}
 
 	return hopSharedSecrets
