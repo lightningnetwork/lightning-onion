@@ -249,7 +249,7 @@ func (hp *HopPayload) Decode(r io.Reader) error {
 	case 0x00:
 		// Our size is just the payload, without the HMAC. This means
 		// that this is the legacy payload type.
-		payloadSize = HopDataSize - HMACSize
+		payloadSize = LegacyHopDataSize - HMACSize
 		hp.Type = PayloadLegacy
 
 	default:

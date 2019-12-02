@@ -36,26 +36,26 @@ const (
 	// utilize this space to pack in the unrolled bytes.
 	NumPaddingBytes = 12
 
-	// HopDataSize is the fixed size of hop_data. BOLT 04 currently
+	// LegacyHopDataSize is the fixed size of hop_data. BOLT 04 currently
 	// specifies this to be 1 byte realm, 8 byte channel_id, 8 byte amount
-	// to forward, 4 byte outgoing CLTV value, 12 bytes padding and 32
-	// bytes HMAC for a total of 65 bytes per hop.
-	HopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
+	// to forward, 4 byte outgoing CLTV value, 12 bytes padding and 32 bytes
+	// HMAC for a total of 65 bytes per hop.
+	LegacyHopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
 		OutgoingCLTVSize + NumPaddingBytes + HMACSize)
 
-	// MaxPayloadSize is the maximum size a payload for a single hop can
-	// be. This is the worst case scenario of a single hop, consuming all
-	// 20 frames. We need to know this in order to generate a sufficiently
-	// long stream of pseudo-random bytes when encrypting/decrypting the
-	// payload.
-	MaxPayloadSize = NumMaxHops * HopDataSize
+	// MaxPayloadSize is the maximum size a payload for a single hop can be.
+	// This is the worst case scenario of a single hop, consuming all
+	// available space. We need to know this in order to generate a
+	// sufficiently long stream of pseudo-random bytes when
+	// encrypting/decrypting the payload.
+	MaxPayloadSize = routingInfoSize
 
 	// routingInfoSize is the fixed size of the the routing info. This
 	// consists of a addressSize byte address and a HMACSize byte HMAC for
 	// each hop of the route, the first pair in cleartext and the following
-	// pairs increasingly obfuscated. In case fewer than numMaxHops are
-	// used, then the remainder is padded with null-bytes, also obfuscated.
-	routingInfoSize = NumMaxHops * HopDataSize
+	// pairs increasingly obfuscated. If not all space is used up, the
+	// remainder is padded with null-bytes, also obfuscated.
+	routingInfoSize = 1300
 
 	// numStreamBytes is the number of bytes produced by our CSPRG for the
 	// key stream implementing our stream cipher to encrypt/decrypt the mix
