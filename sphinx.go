@@ -50,9 +50,6 @@ const (
 	// payload.
 	MaxPayloadSize = NumMaxHops * HopDataSize
 
-	// sharedSecretSize is the size in bytes of the shared secrets.
-	sharedSecretSize = 32
-
 	// routingInfoSize is the fixed size of the the routing info. This
 	// consists of a addressSize byte address and a HMACSize byte HMAC for
 	// each hop of the route, the first pair in cleartext and the following
