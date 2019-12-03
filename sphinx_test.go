@@ -563,8 +563,7 @@ func newEOBRoute(numHops uint32,
 	)
 	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create forwarding "+
-			"message: %#v", err)
+		return nil, nil, err
 	}
 
 	return fwdMsg, nodes, nil
@@ -587,8 +586,9 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 	t.Parallel()
 
 	var testCases = []struct {
-		numNodes   uint32
-		eobMapping map[int]HopPayload
+		numNodes      uint32
+		eobMapping    map[int]HopPayload
+		expectedError error
 	}{
 		// A single hop route with a payload going to the last hop in
 		// the route. The payload is enough to fit into what would be
@@ -678,15 +678,39 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 				},
 			},
 		},
+
+		// A 3 hop route (4 nodes) that carries more data then what fits
+		// in the routing info.
+		{
+			numNodes: 3,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+				1: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+				2: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+			},
+			expectedError: ErrMaxRoutingInfoSizeExceeded,
+		},
 	}
 
 	for testCaseNum, testCase := range testCases {
 		nextPkt, routers, err := newEOBRoute(
 			testCase.numNodes, testCase.eobMapping,
 		)
-		if err != nil {
+		if testCase.expectedError != err {
 			t.Fatalf("#%v: unable to create eob "+
 				"route: %v", testCase, err)
+		}
+		if err != nil {
+			continue
 		}
 
 		// We'll now walk thru manually each actual hop within the
