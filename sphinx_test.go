@@ -86,6 +86,8 @@ var (
 		"2cf4f0731da13b8546d1d6d4f8d75b9fce6c2341a71b0ea6f780" +
 		"df54bfdb0dd5cd9855179f602f917265f21f9190c70217774a6f" +
 		"baaa7d63ad64199f4664813b955cff954949076dcf"
+
+	testLegacyRouteNumHops = 20
 )
 
 func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
@@ -214,7 +216,7 @@ func TestBolt4Packet(t *testing.T) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	nodes, _, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, hopDatas, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -307,7 +309,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -332,7 +334,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -378,7 +380,7 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -423,7 +425,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}

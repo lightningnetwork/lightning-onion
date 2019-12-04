@@ -304,11 +304,15 @@ func (hp *HopPayload) HopData() (*HopData, error) {
 	return &hd, nil
 }
 
-// NumMaxHops is the maximum path length. This should be set to an estimate of
-// the upper limit of the diameter of the node graph.
-//
-// TODO(roasbeef): adjust due to var-payloads?
-const NumMaxHops = 20
+// NumMaxHops is the maximum path length. There is a maximum of 1300 bytes in
+// the routing info block. Legacy hop payloads are always 65 bytes, while tlv
+// payloads are at least 47 bytes (tlvlen 1, amt 2, timelock 2, nextchan 10,
+// hmac 32) for the intermediate hops and 37 bytes (tlvlen 1, amt 2, timelock 2,
+// hmac 32) for the exit hop. The maximum path length can therefore only be
+// reached by using tlv payloads only. With that, the maximum number of
+// intermediate hops is: Floor((1300 - 37) / 47) = 26. Including the exit hop,
+// the maximum path length is 27 hops.
+const NumMaxHops = 27
 
 // PaymentPath represents a series of hops within the Lightning Network
 // starting at a sender and terminating at a receiver. Each hop contains a set
