@@ -86,6 +86,8 @@ var (
 		"2cf4f0731da13b8546d1d6d4f8d75b9fce6c2341a71b0ea6f780" +
 		"df54bfdb0dd5cd9855179f602f917265f21f9190c70217774a6f" +
 		"baaa7d63ad64199f4664813b955cff954949076dcf"
+
+	testLegacyRouteNumHops = 20
 )
 
 func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
@@ -214,7 +216,7 @@ func TestBolt4Packet(t *testing.T) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	nodes, _, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, hopDatas, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -307,7 +309,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -332,7 +334,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -378,7 +380,7 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -423,7 +425,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -563,8 +565,7 @@ func newEOBRoute(numHops uint32,
 	)
 	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create forwarding "+
-			"message: %#v", err)
+		return nil, nil, err
 	}
 
 	return fwdMsg, nodes, nil
@@ -587,8 +588,9 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 	t.Parallel()
 
 	var testCases = []struct {
-		numNodes   uint32
-		eobMapping map[int]HopPayload
+		numNodes      uint32
+		eobMapping    map[int]HopPayload
+		expectedError error
 	}{
 		// A single hop route with a payload going to the last hop in
 		// the route. The payload is enough to fit into what would be
@@ -598,7 +600,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 			eobMapping: map[int]HopPayload{
 				0: HopPayload{
 					Type:    PayloadTLV,
-					Payload: bytes.Repeat([]byte("a"), HopDataSize-HMACSize),
+					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize-HMACSize),
 				},
 			},
 		},
@@ -610,7 +612,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 			eobMapping: map[int]HopPayload{
 				0: HopPayload{
 					Type:    PayloadTLV,
-					Payload: bytes.Repeat([]byte("a"), HopDataSize*3),
+					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*3),
 				},
 			},
 		},
@@ -631,7 +633,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 				}, nil),
 				1: HopPayload{
 					Type:    PayloadTLV,
-					Payload: bytes.Repeat([]byte("a"), HopDataSize*2),
+					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*2),
 				},
 			},
 		},
@@ -678,15 +680,39 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 				},
 			},
 		},
+
+		// A 3 hop route (4 nodes) that carries more data then what fits
+		// in the routing info.
+		{
+			numNodes: 3,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+				1: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+				2: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 500),
+				},
+			},
+			expectedError: ErrMaxRoutingInfoSizeExceeded,
+		},
 	}
 
 	for testCaseNum, testCase := range testCases {
 		nextPkt, routers, err := newEOBRoute(
 			testCase.numNodes, testCase.eobMapping,
 		)
-		if err != nil {
+		if testCase.expectedError != err {
 			t.Fatalf("#%v: unable to create eob "+
 				"route: %v", testCase, err)
+		}
+		if err != nil {
+			continue
 		}
 
 		// We'll now walk thru manually each actual hop within the
