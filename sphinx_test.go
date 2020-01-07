@@ -135,7 +135,9 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 	sessionKey, _ := btcec.PrivKeyFromBytes(
 		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
 	)
-	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
+	fwdMsg, err := NewOnionPacket(
+		&route, sessionKey, nil, DeterministicPacketFiller,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("unable to create "+
 			"forwarding message: %#v", err)
@@ -198,7 +200,7 @@ func TestBolt4Packet(t *testing.T) {
 	}
 
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bolt4SessionKey)
-	pkt, err := NewOnionPacket(&route, sessionKey, bolt4AssocData)
+	pkt, err := NewOnionPacket(&route, sessionKey, bolt4AssocData, BlankPacketFiller)
 	if err != nil {
 		t.Fatalf("unable to construct onion packet: %v", err)
 	}
@@ -558,12 +560,14 @@ func newEOBRoute(numHops uint32,
 	}
 
 	// Generate a forwarding message to route to the final node via the
-	// generated intermdiates nodes above.  Destination should be Hash160,
+	// generated intermediate nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	sessionKey, _ := btcec.PrivKeyFromBytes(
 		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
 	)
-	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
+	fwdMsg, err := NewOnionPacket(
+		&route, sessionKey, nil, DeterministicPacketFiller,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -920,7 +924,9 @@ func TestVariablePayloadOnion(t *testing.T) {
 
 	// With all the required data assembled, we'll craft a new packet.
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), sessionKeyBytes)
-	pkt, err := NewOnionPacket(&route, sessionKey, associatedData)
+	pkt, err := NewOnionPacket(
+		&route, sessionKey, associatedData, BlankPacketFiller,
+	)
 	if err != nil {
 		t.Fatalf("unable to construct onion packet: %v", err)
 	}
