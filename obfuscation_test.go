@@ -30,7 +30,10 @@ func TestOnionFailure(t *testing.T) {
 	errorPath := paymentPath[:len(paymentPath)-1]
 
 	failureData := bytes.Repeat([]byte{'A'}, onionErrorLength-sha256.Size)
-	sharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
+	sharedSecrets, err := generateSharedSecrets(paymentPath, sessionKey)
+	if err != nil {
+		t.Fatalf("Unexpected error while generating secrets: %v", err)
+	}
 
 	// Emulate creation of the obfuscator on node where error have occurred.
 	obfuscator := &OnionErrorEncrypter{
@@ -194,7 +197,10 @@ func TestOnionFailureSpecVector(t *testing.T) {
 	}
 
 	var obfuscatedData []byte
-	sharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
+	sharedSecrets, err := generateSharedSecrets(paymentPath, sessionKey)
+	if err != nil {
+		t.Fatalf("Unexpected error while generating secrets: %v", err)
+	}
 	for i, test := range onionErrorData {
 
 		// Decode the shared secret and check that it matchs with

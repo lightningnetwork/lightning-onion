@@ -117,7 +117,7 @@ type OnionPacket struct {
 // generateSharedSecrets by the given nodes pubkeys, generates the shared
 // secrets.
 func generateSharedSecrets(paymentPath []*btcec.PublicKey,
-	sessionKey *btcec.PrivateKey) []Hash256 {
+	sessionKey *btcec.PrivateKey) ([]Hash256, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -131,8 +131,14 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
 	lastEphemeralPubKey := sessionKey.PubKey()
-	hopSharedSecrets[0] = generateSharedSecret(paymentPath[0], sessionKey)
-	lastBlindingFactor := computeBlindingFactor(lastEphemeralPubKey, hopSharedSecrets[0][:])
+	sharedSecret, err := generateSharedSecret(paymentPath[0], sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	hopSharedSecrets[0] = sharedSecret
+	lastBlindingFactor := computeBlindingFactor(
+		lastEphemeralPubKey, hopSharedSecrets[0][:],
+	)
 
 	// The cached blinding factor will contain the running product of the
 	// session private key x and blinding factors b_i, computed as
@@ -184,7 +190,7 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 		)
 	}
 
-	return hopSharedSecrets
+	return hopSharedSecrets, nil
 }
 
 // NewOnionPacket creates a new onion packet which is capable of obliviously
@@ -211,9 +217,12 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		return nil, fmt.Errorf("packet filler must be specified")
 	}
 
-	hopSharedSecrets := generateSharedSecrets(
+	hopSharedSecrets, err := generateSharedSecrets(
 		paymentPath.NodeKeys(), sessionKey,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("error generating shared secret: %v", err)
+	}
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding("rho", paymentPath, hopSharedSecrets)
