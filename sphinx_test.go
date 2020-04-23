@@ -102,7 +102,8 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		}
 
 		nodes[i] = NewRouter(
-			privKey, &chaincfg.MainNetParams, NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
+			NewMemoryReplayLog(),
 		)
 	}
 
@@ -543,7 +544,8 @@ func newEOBRoute(numHops uint32,
 		}
 
 		nodes[i] = NewRouter(
-			privKey, &chaincfg.MainNetParams, NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
+			NewMemoryReplayLog(),
 		)
 	}
 

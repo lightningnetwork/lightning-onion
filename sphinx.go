@@ -2,7 +2,6 @@ package sphinx
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
@@ -131,7 +130,8 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
 	lastEphemeralPubKey := sessionKey.PubKey()
-	sharedSecret, err := generateSharedSecret(paymentPath[0], sessionKey)
+	sessionKeyECDH := &PrivKeyECDH{PrivKey: sessionKey}
+	sharedSecret, err := sessionKeyECDH.ECDH(paymentPath[0])
 	if err != nil {
 		return nil, err
 	}
@@ -488,14 +488,14 @@ type Router struct {
 	nodeID   [AddressSize]byte
 	nodeAddr *btcutil.AddressPubKeyHash
 
-	onionKey *btcec.PrivateKey
+	onionKey SingleKeyECDH
 
 	log ReplayLog
 }
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog) *Router {
+func NewRouter(nodeKey SingleKeyECDH, net *chaincfg.Params, log ReplayLog) *Router {
 	var nodeID [AddressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
@@ -505,15 +505,8 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog) *
 	return &Router{
 		nodeID:   nodeID,
 		nodeAddr: nodeAddr,
-		onionKey: &btcec.PrivateKey{
-			PublicKey: ecdsa.PublicKey{
-				Curve: btcec.S256(),
-				X:     nodeKey.X,
-				Y:     nodeKey.Y,
-			},
-			D: nodeKey.D,
-		},
-		log: log,
+		onionKey: nodeKey,
+		log:      log,
 	}
 }
 
