@@ -2,7 +2,6 @@ package sphinx
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
@@ -117,7 +116,7 @@ type OnionPacket struct {
 // generateSharedSecrets by the given nodes pubkeys, generates the shared
 // secrets.
 func generateSharedSecrets(paymentPath []*btcec.PublicKey,
-	sessionKey *btcec.PrivateKey) []Hash256 {
+	sessionKey *btcec.PrivateKey) ([]Hash256, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -131,8 +130,15 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
 	lastEphemeralPubKey := sessionKey.PubKey()
-	hopSharedSecrets[0] = generateSharedSecret(paymentPath[0], sessionKey)
-	lastBlindingFactor := computeBlindingFactor(lastEphemeralPubKey, hopSharedSecrets[0][:])
+	sessionKeyECDH := &PrivKeyECDH{PrivKey: sessionKey}
+	sharedSecret, err := sessionKeyECDH.ECDH(paymentPath[0])
+	if err != nil {
+		return nil, err
+	}
+	hopSharedSecrets[0] = sharedSecret
+	lastBlindingFactor := computeBlindingFactor(
+		lastEphemeralPubKey, hopSharedSecrets[0][:],
+	)
 
 	// The cached blinding factor will contain the running product of the
 	// session private key x and blinding factors b_i, computed as
@@ -184,7 +190,7 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 		)
 	}
 
-	return hopSharedSecrets
+	return hopSharedSecrets, nil
 }
 
 // NewOnionPacket creates a new onion packet which is capable of obliviously
@@ -211,9 +217,12 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		return nil, fmt.Errorf("packet filler must be specified")
 	}
 
-	hopSharedSecrets := generateSharedSecrets(
+	hopSharedSecrets, err := generateSharedSecrets(
 		paymentPath.NodeKeys(), sessionKey,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("error generating shared secret: %v", err)
+	}
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding("rho", paymentPath, hopSharedSecrets)
@@ -479,14 +488,14 @@ type Router struct {
 	nodeID   [AddressSize]byte
 	nodeAddr *btcutil.AddressPubKeyHash
 
-	onionKey *btcec.PrivateKey
+	onionKey SingleKeyECDH
 
 	log ReplayLog
 }
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog) *Router {
+func NewRouter(nodeKey SingleKeyECDH, net *chaincfg.Params, log ReplayLog) *Router {
 	var nodeID [AddressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
@@ -496,15 +505,8 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog) *
 	return &Router{
 		nodeID:   nodeID,
 		nodeAddr: nodeAddr,
-		onionKey: &btcec.PrivateKey{
-			PublicKey: ecdsa.PublicKey{
-				Curve: btcec.S256(),
-				X:     nodeKey.X,
-				Y:     nodeKey.Y,
-			},
-			D: nodeKey.D,
-		},
-		log: log,
+		onionKey: nodeKey,
+		log:      log,
 	}
 }
 
