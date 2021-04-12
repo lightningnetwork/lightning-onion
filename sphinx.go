@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -701,6 +702,8 @@ type Tx struct {
 	// only be accessed if the index is *not* included in the replay set, or
 	// otherwise failed any other stage of the processing.
 	packets []ProcessedPacket
+
+	sync.Mutex
 }
 
 // BeginTxn creates a new transaction that can later be committed back to the
@@ -750,6 +753,9 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 	if err != nil {
 		return err
 	}
+
+	t.Lock()
+	defer t.Unlock()
 
 	// Add the hash prefix to pending batch of shared secrets that will be
 	// written later via Commit().
