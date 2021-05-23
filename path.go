@@ -23,7 +23,7 @@ type HopData struct {
 	Realm [RealmByteSize]byte
 
 	// NextAddress is the address of the next hop that this packet should
-	// be forward to.
+	// be forwarded to.
 	NextAddress [AddressSize]byte
 
 	// ForwardAmount is the HTLC amount that the next hop should forward.
