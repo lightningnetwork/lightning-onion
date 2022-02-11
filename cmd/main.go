@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 )
@@ -44,7 +44,7 @@ func parseOnionSpec(spec OnionSpec) (*sphinx.PaymentPath, *btcec.PrivateKey, err
 		binSessionKey = bytes.Repeat([]byte{'A'}, 32)
 	}
 
-	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binSessionKey)
+	sessionKey, _ := btcec.PrivKeyFromBytes(binSessionKey)
 
 	for i, hop := range spec.Hops {
 		binKey, err := hex.DecodeString(hop.PublicKey)
@@ -52,7 +52,7 @@ func parseOnionSpec(spec OnionSpec) (*sphinx.PaymentPath, *btcec.PrivateKey, err
 			log.Fatalf("%s is not a valid hex pubkey %s", hop.PublicKey, err)
 		}
 
-		pubkey, err := btcec.ParsePubKey(binKey, btcec.S256())
+		pubkey, err := btcec.ParsePubKey(binKey)
 		if err != nil {
 			log.Fatalf("%s is not a valid hex pubkey %s", hop.PublicKey, err)
 		}
@@ -132,7 +132,7 @@ func main() {
 			log.Fatalf("Error decoding message: %s", err)
 		}
 
-		privkey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
+		privkey, _ := btcec.PrivKeyFromBytes(binKey)
 		privKeyECDH := &sphinx.PrivKeyECDH{PrivKey: privkey}
 		replayLog := sphinx.NewMemoryReplayLog()
 		s := sphinx.NewRouter(

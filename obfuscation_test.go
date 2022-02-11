@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // TestOnionFailure checks the ability of sender of payment to decode the
@@ -16,14 +16,13 @@ func TestOnionFailure(t *testing.T) {
 	// Create numHops random sphinx paymentPath.
 	paymentPath := make([]*btcec.PublicKey, 5)
 	for i := 0; i < len(paymentPath); i++ {
-		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		privKey, err := btcec.NewPrivateKey()
 		if err != nil {
 			t.Fatalf("unable to generate random key for sphinx node: %v", err)
 		}
 		paymentPath[i] = privKey.PubKey()
 	}
-	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		bytes.Repeat([]byte{'A'}, 32))
+	sessionKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{'A'}, 32))
 
 	// Reduce the error path on one node, in order to check that we are
 	// able to receive the error not only from last hop.
@@ -152,7 +151,7 @@ func getSpecPubKeys() ([]*btcec.PublicKey, error) {
 			return nil, err
 		}
 
-		key, err := btcec.ParsePubKey(bKey, btcec.S256())
+		key, err := btcec.ParsePubKey(bKey)
 		if err != nil {
 			return nil, err
 		}
@@ -168,7 +167,7 @@ func getSpecSessionKey() (*btcec.PrivateKey, error) {
 		return nil, err
 	}
 
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bKey)
+	privKey, _ := btcec.PrivKeyFromBytes(bKey)
 	return privKey, nil
 }
 
@@ -202,7 +201,6 @@ func TestOnionFailureSpecVector(t *testing.T) {
 		t.Fatalf("Unexpected error while generating secrets: %v", err)
 	}
 	for i, test := range onionErrorData {
-
 		// Decode the shared secret and check that it matchs with
 		// specification.
 		expectedSharedSecret, err := hex.DecodeString(test.sharedSecret)

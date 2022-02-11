@@ -3,7 +3,7 @@ package sphinx
 import (
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // OnionErrorEncrypter is a struct that's used to implement onion error
@@ -62,7 +62,7 @@ func (c *Circuit) Decode(r io.Reader) error {
 		return err
 	}
 
-	c.SessionKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), sessionKeyData)
+	c.SessionKey, _ = btcec.PrivKeyFromBytes(sessionKeyData)
 	var pathLength [1]byte
 	if _, err := r.Read(pathLength[:]); err != nil {
 		return err
@@ -75,7 +75,7 @@ func (c *Circuit) Decode(r io.Reader) error {
 			return err
 		}
 
-		pubKey, err := btcec.ParsePubKey(pubKeyData[:], btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubKeyData[:])
 		if err != nil {
 			return err
 		}

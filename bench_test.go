@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 var (
@@ -22,7 +22,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	)
 
 	for i := 0; i < NumMaxHops; i++ {
-		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		privKey, err := btcec.NewPrivateKey()
 		if err != nil {
 			b.Fatalf("unable to generate key: %v", privKey)
 		}
@@ -44,7 +44,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		}
 	}
 
-	d, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
+	d, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{'A'}, 32))
 
 	b.ReportAllocs()
 
