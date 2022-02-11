@@ -1,7 +1,7 @@
 package sphinx
 
 import (
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"golang.org/x/crypto/ripemd160"
 )
 

@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/davecgh/go-spew/spew"
 )
@@ -43,7 +43,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 
 	// Create numHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
-		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		privKey, err := btcec.NewPrivateKey()
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("Unable to "+
 				"generate random key for sphinx node: %v", err)
@@ -81,9 +81,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 	// Generate a forwarding message to route to the final node via the
 	// generated intermediate nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
-	sessionKey, _ := btcec.PrivKeyFromBytes(
-		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
-	)
+	sessionKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{'A'}, 32))
 	fwdMsg, err := NewOnionPacket(
 		&route, sessionKey, nil, DeterministicPacketFiller,
 	)
@@ -117,7 +115,7 @@ func TestBolt4Packet(t *testing.T) {
 			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v", i, err)
 		}
 
-		pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 		if err != nil {
 			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
 		}
@@ -134,8 +132,6 @@ func TestBolt4Packet(t *testing.T) {
 			t.Fatalf("unable to make hop payload: %v", err)
 		}
 
-		pubKey.Curve = nil
-
 		route[i] = OnionHop{
 			NodePub:    *pubKey,
 			HopPayload: hopPayload,
@@ -148,7 +144,7 @@ func TestBolt4Packet(t *testing.T) {
 			"%v", err)
 	}
 
-	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bolt4SessionKey)
+	sessionKey, _ := btcec.PrivKeyFromBytes(bolt4SessionKey)
 	pkt, err := NewOnionPacket(
 		&route, sessionKey, bolt4AssocData, DeterministicPacketFiller,
 	)
@@ -487,7 +483,7 @@ func newEOBRoute(numHops uint32,
 	// First, we'll assemble a set of routers that will consume all the
 	// hops we create in this path.
 	for i := 0; i < len(nodes); i++ {
-		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		privKey, err := btcec.NewPrivateKey()
 		if err != nil {
 			return nil, nil, fmt.Errorf("Unable to generate "+
 				"random key for sphinx node: %v", err)
@@ -514,9 +510,7 @@ func newEOBRoute(numHops uint32,
 	// Generate a forwarding message to route to the final node via the
 	// generated intermediate nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
-	sessionKey, _ := btcec.PrivKeyFromBytes(
-		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
-	)
+	sessionKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{'A'}, 32))
 	fwdMsg, err := NewOnionPacket(
 		&route, sessionKey, nil, DeterministicPacketFiller,
 	)
@@ -828,7 +822,7 @@ func TestVariablePayloadOnion(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to decode pubkey: %v", err)
 		}
-		pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 		if err != nil {
 			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
 		}
@@ -875,7 +869,7 @@ func TestVariablePayloadOnion(t *testing.T) {
 	}
 
 	// With all the required data assembled, we'll craft a new packet.
-	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), sessionKeyBytes)
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
 	pkt, err := NewOnionPacket(
 		&route, sessionKey, associatedData, DeterministicPacketFiller,
 	)

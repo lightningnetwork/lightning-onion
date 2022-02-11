@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -343,7 +343,7 @@ type OnionHop struct {
 
 // IsEmpty returns true if the hop isn't populated.
 func (o OnionHop) IsEmpty() bool {
-	return o.NodePub.X == nil || o.NodePub.Y == nil
+	return o.NodePub.X().BitLen() == 0 || o.NodePub.Y().BitLen() == 0
 }
 
 // NodeKeys returns a slice pointing to node keys that this route comprises of.

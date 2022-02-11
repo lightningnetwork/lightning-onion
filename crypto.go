@@ -8,7 +8,8 @@ import (
 	"fmt"
 
 	"github.com/aead/chacha20"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const (
@@ -65,10 +66,16 @@ func (p *PrivKeyECDH) PubKey() *btcec.PublicKey {
 //
 // NOTE: This is part of the SingleKeyECDH interface.
 func (p *PrivKeyECDH) ECDH(pub *btcec.PublicKey) ([32]byte, error) {
-	s := &btcec.PublicKey{}
-	s.X, s.Y = btcec.S256().ScalarMult(pub.X, pub.Y, p.PrivKey.D.Bytes())
+	var pubJ btcec.JacobianPoint
+	pub.AsJacobian(&pubJ)
 
-	return sha256.Sum256(s.SerializeCompressed()), nil
+	var ecdhPoint btcec.JacobianPoint
+	btcec.ScalarMultNonConst(&p.PrivKey.Key, &pubJ, &ecdhPoint)
+
+	ecdhPoint.ToAffine()
+	ecdhPubKey := btcec.NewPublicKey(&ecdhPoint.X, &ecdhPoint.Y)
+
+	return sha256.Sum256(ecdhPubKey.SerializeCompressed()), nil
 }
 
 // DecryptedError contains the decrypted error message and its sender.
@@ -153,7 +160,7 @@ func generateCipherStream(key [keyLen]byte, numBytes uint) []byte {
 // sharedSecret for this hop. The blinding factor is computed as the
 // sha-256(pubkey || sharedSecret).
 func computeBlindingFactor(hopPubKey *btcec.PublicKey,
-	hopSharedSecret []byte) Hash256 {
+	hopSharedSecret []byte) btcec.ModNScalar {
 
 	sha := sha256.New()
 	sha.Write(hopPubKey.SerializeCompressed())
@@ -161,21 +168,35 @@ func computeBlindingFactor(hopPubKey *btcec.PublicKey,
 
 	var hash Hash256
 	copy(hash[:], sha.Sum(nil))
-	return hash
+
+	var blindingBytes btcec.ModNScalar
+	blindingBytes.SetByteSlice(hash[:])
+
+	return blindingBytes
 }
 
 // blindGroupElement blinds the group element P by performing scalar
 // multiplication of the group element by blindingFactor: blindingFactor * P.
-func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec.PublicKey {
-	newX, newY := btcec.S256().ScalarMult(hopPubKey.X, hopPubKey.Y, blindingFactor[:])
-	return &btcec.PublicKey{btcec.S256(), newX, newY}
+func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor btcec.ModNScalar) *btcec.PublicKey {
+	var hopPubKeyJ btcec.JacobianPoint
+	hopPubKey.AsJacobian(&hopPubKeyJ)
+
+	var blindedPoint btcec.JacobianPoint
+	btcec.ScalarMultNonConst(
+		&blindingFactor, &hopPubKeyJ, &blindedPoint,
+	)
+	blindedPoint.ToAffine()
+
+	return btcec.NewPublicKey(&blindedPoint.X, &blindedPoint.Y)
 }
 
 // blindBaseElement blinds the groups's generator G by performing scalar base
 // multiplication using the blindingFactor: blindingFactor * G.
-func blindBaseElement(blindingFactor []byte) *btcec.PublicKey {
-	newX, newY := btcec.S256().ScalarBaseMult(blindingFactor)
-	return &btcec.PublicKey{btcec.S256(), newX, newY}
+func blindBaseElement(blindingFactor btcec.ModNScalar) *btcec.PublicKey {
+	// TODO(roasbeef): remove after btcec version bump to add alias for
+	// this method
+	priv := secp.NewPrivateKey(&blindingFactor)
+	return priv.PubKey()
 }
 
 // sharedSecretGenerator is an interface that abstracts away exactly *how* the
@@ -193,7 +214,7 @@ func (r *Router) generateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error) {
 	var sharedSecret Hash256
 
 	// Ensure that the public key is on our curve.
-	if !btcec.S256().IsOnCurve(dhKey.X, dhKey.Y) {
+	if !dhKey.IsOnCurve() {
 		return sharedSecret, ErrInvalidOnionKey
 	}
 
