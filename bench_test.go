@@ -21,7 +21,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		route        PaymentPath
 	)
 
-	for i := 0; i < NumMaxHops; i++ {
+	for i := 0; i < 20; i++ {
 		privKey, err := btcec.NewPrivateKey()
 		if err != nil {
 			b.Fatalf("unable to generate key: %v", privKey)
