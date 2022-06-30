@@ -10,6 +10,7 @@ import (
 	"github.com/aead/chacha20"
 	"github.com/btcsuite/btcd/btcec/v2"
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -18,6 +19,10 @@ const (
 	// during onion creation as well as during the verification.
 	HMACSize = 32
 )
+
+// chaChaPolyZeroNonce is a slice of zero bytes used in the chacha20poly1305
+// encryption and decryption.
+var chaChaPolyZeroNonce [chacha20poly1305.NonceSize]byte
 
 // Hash256 is a statically sized, 32-byte array, typically containing
 // the output of a SHA256 hash.
@@ -61,8 +66,8 @@ func (p *PrivKeyECDH) PubKey() *btcec.PublicKey {
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This is part of the SingleKeyECDH interface.
 func (p *PrivKeyECDH) ECDH(pub *btcec.PublicKey) ([32]byte, error) {
@@ -197,6 +202,31 @@ func blindBaseElement(blindingFactor btcec.ModNScalar) *btcec.PublicKey {
 	// this method
 	priv := secp.NewPrivateKey(&blindingFactor)
 	return priv.PubKey()
+}
+
+// chacha20polyEncrypt initialises the ChaCha20Poly1305 algorithm with the given
+// key and uses it to encrypt the passed message. This uses an all-zero nonce as
+// required by the route-blinding spec.
+func chacha20polyEncrypt(key, plainTxt []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return aead.Seal(plainTxt[:0], chaChaPolyZeroNonce[:], plainTxt, nil),
+		nil
+}
+
+// chacha20polyDecrypt initialises the ChaCha20Poly1305 algorithm with the given
+// key and uses it to decrypt the passed cipher text. This uses an all-zero
+// nonce as required by the route-blinding spec.
+func chacha20polyDecrypt(key, cipherTxt []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return aead.Open(cipherTxt[:0], chaChaPolyZeroNonce[:], cipherTxt, nil)
 }
 
 // sharedSecretGenerator is an interface that abstracts away exactly *how* the
