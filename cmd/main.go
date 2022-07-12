@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 )
 
@@ -135,9 +134,7 @@ func main() {
 		privkey, _ := btcec.PrivKeyFromBytes(binKey)
 		privKeyECDH := &sphinx.PrivKeyECDH{PrivKey: privkey}
 		replayLog := sphinx.NewMemoryReplayLog()
-		s := sphinx.NewRouter(
-			privKeyECDH, &chaincfg.TestNet3Params, replayLog,
-		)
+		s := sphinx.NewRouter(privKeyECDH, replayLog)
 
 		replayLog.Start()
 		defer replayLog.Stop()
