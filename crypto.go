@@ -235,10 +235,10 @@ func onionEncrypt(sharedSecret *Hash256, data []byte) []byte {
 	return p
 }
 
-// onionErrorLength is the expected length of the onion error message.
-// Including padding, all messages on the wire should be 256 bytes. We then add
-// the size of the sha256 HMAC as well.
-const onionErrorLength = 2 + 2 + 256 + sha256.Size
+// minOnionErrorLength is the minimally expected length of the onion error
+// message. Including padding, all messages on the wire should be at least 256
+// bytes. We then add the size of the sha256 HMAC as well.
+const minOnionErrorLength = 2 + 2 + 256 + sha256.Size
 
 // DecryptError attempts to decrypt the passed encrypted error response. The
 // onion failure is encrypted in backward manner, starting from the node where
@@ -250,9 +250,9 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 	*DecryptedError, error) {
 
 	// Ensure the error message length is as expected.
-	if len(encryptedData) != onionErrorLength {
+	if len(encryptedData) < minOnionErrorLength {
 		return nil, fmt.Errorf("invalid error length: "+
-			"expected %v got %v", onionErrorLength,
+			"expected at least %v got %v", minOnionErrorLength,
 			len(encryptedData))
 	}
 
