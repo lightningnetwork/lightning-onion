@@ -611,6 +611,22 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket, assocData []byte,
 	return processOnionPacket(onionPkt, &sharedSecret, assocData)
 }
 
+// DecryptBlindedHopData uses the router's private key to decrypt data encrypted
+// by the creator of the blinded route.
+func (r *Router) DecryptBlindedHopData(ephemPub *btcec.PublicKey,
+	encryptedData []byte) ([]byte, error) {
+
+	return decryptBlindedHopData(r.onionKey, ephemPub, encryptedData)
+}
+
+// NextEphemeral computes the next ephemeral key given the current ephemeral
+// key and the router's private key.
+func (r *Router) NextEphemeral(ephemPub *btcec.PublicKey) (*btcec.PublicKey,
+	error) {
+
+	return NextEphemeral(r.onionKey, ephemPub)
+}
+
 // unwrapPacket wraps a layer of the passed onion packet using the specified
 // shared secret and associated data. The associated data will be used to check
 // the HMAC at each hop to ensure the same data is passed along with the onion
