@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/davecgh/go-spew/spew"
 )
 
@@ -50,8 +49,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		}
 
 		nodes[i] = NewRouter(
-			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
-			NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, NewMemoryReplayLog(),
 		)
 	}
 
@@ -490,8 +488,7 @@ func newEOBRoute(numHops uint32,
 		}
 
 		nodes[i] = NewRouter(
-			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
-			NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, NewMemoryReplayLog(),
 		)
 	}
 

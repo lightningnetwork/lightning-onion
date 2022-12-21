@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 )
 
 const (
@@ -484,8 +483,7 @@ type ProcessedPacket struct {
 // of processing incoming Sphinx onion packets thereby "peeling" a layer off
 // the onion encryption which the packet is wrapped with.
 type Router struct {
-	nodeID   [AddressSize]byte
-	nodeAddr *btcutil.AddressPubKeyHash
+	nodeID [AddressSize]byte
 
 	onionKey SingleKeyECDH
 
@@ -494,16 +492,12 @@ type Router struct {
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(nodeKey SingleKeyECDH, net *chaincfg.Params, log ReplayLog) *Router {
+func NewRouter(nodeKey SingleKeyECDH, log ReplayLog) *Router {
 	var nodeID [AddressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
-	// Safe to ignore the error here, nodeID is 20 bytes.
-	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
-
 	return &Router{
 		nodeID:   nodeID,
-		nodeAddr: nodeAddr,
 		onionKey: nodeKey,
 		log:      log,
 	}
