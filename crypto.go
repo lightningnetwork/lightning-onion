@@ -234,18 +234,18 @@ func chacha20polyDecrypt(key, cipherTxt []byte) ([]byte, error) {
 //
 // TODO(roasbef): rename?
 type sharedSecretGenerator interface {
-	// generateSharedSecret given a public key, generates a shared secret
+	// GenerateSharedSecret given a public key, generates a shared secret
 	// using private data of the underlying sharedSecretGenerator.
-	generateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error)
+	GenerateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error)
 }
 
-// generateSharedSecret generates the shared secret using the given ephemeral
+// GenerateSharedSecret generates the shared secret using the given ephemeral
 // pub key and the Router's private key. If a blindingPoint is provided then it
 // is used to tweak the Router's private key before creating the shared secret
 // with the ephemeral pub key. The blinding point is used to determine our
 // shared secret with the receiver. From that we can determine our shared
 // secret with the sender using the dhKey.
-func (r *Router) generateSharedSecret(dhKey,
+func (r *Router) GenerateSharedSecret(dhKey,
 	blindingPoint *btcec.PublicKey) (Hash256, error) {
 
 	// If no blinding point is provided, then the un-tweaked dhKey can
