@@ -546,7 +546,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte,
 	}
 
 	// Compute the shared secret for this onion packet.
-	sharedSecret, err := r.generateSharedSecret(
+	sharedSecret, err := r.GenerateSharedSecret(
 		onionPkt.EphemeralKey, cfg.blindingPoint,
 	)
 	if err != nil {
@@ -587,7 +587,7 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket, assocData []byte,
 	}
 
 	// Compute the shared secret for this onion packet.
-	sharedSecret, err := r.generateSharedSecret(
+	sharedSecret, err := r.GenerateSharedSecret(
 		onionPkt.EphemeralKey, cfg.blindingPoint,
 	)
 	if err != nil {
@@ -780,7 +780,7 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 	}
 
 	// Compute the shared secret for this onion packet.
-	sharedSecret, err := t.router.generateSharedSecret(
+	sharedSecret, err := t.router.GenerateSharedSecret(
 		onionPkt.EphemeralKey, cfg.blindingPoint,
 	)
 	if err != nil {
