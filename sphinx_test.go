@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"testing"
@@ -750,8 +751,14 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 	}
 }
 
-// testMultiFrameFileName is the name of the multi-frame onion test file.
-const testMultiFrameFileName = "testdata/onion-test-multi-frame.json"
+const (
+	// testMultiFrameFileName is the name of the multi-frame onion test
+	// file.
+	testMultiFrameFileName = "testdata/onion-test-multi-frame.json"
+
+	// testTLVFileName is the name of the tlv-payload-only onion test file.
+	testTLVFileName = "testdata/onion-test.json"
+)
 
 type jsonHop struct {
 	Type string `json:"type"`
@@ -794,6 +801,85 @@ func jsonTypeToPayloadType(jsonType string) PayloadType {
 	default:
 		panic(fmt.Sprintf("unknown payload type: %v", jsonType))
 	}
+}
+
+// TestTLVPayloadOnion tests the construction of an onion where all the payloads
+// are of the TLV type.
+func TestTLVPayloadOnion(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll read out the raw JSON file at the target location.
+	jsonBytes, err := os.ReadFile(testTLVFileName)
+	require.NoError(t, err)
+
+	// Once we have the raw file, we'll unpack it into our jsonTestCase
+	// struct defined above.
+	testCase := &jsonTestCase{}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
+
+	// Next, we'll populate a new OnionHop using the information included
+	// in this test case.
+	var route PaymentPath
+	for i, hop := range testCase.Generate.Hops {
+		pubKeyBytes, err := hex.DecodeString(hop.Pubkey)
+		require.NoError(t, err)
+
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+		require.NoError(t, err)
+
+		// The test has already encoded the length of the TLV payloads,
+		// so to make it compatible with our PaymentPath, we just
+		// extract the payload.
+		payload, err := hex.DecodeString(hop.Payload)
+		require.NoError(t, err)
+
+		var (
+			bufReader = bytes.NewReader(payload)
+			b         [8]byte
+		)
+		varInt, err := ReadVarInt(bufReader, &b)
+		require.NoError(t, err)
+
+		payloadSize := uint32(varInt)
+		require.NoError(t, err)
+
+		hopPayload := make([]byte, payloadSize)
+		_, err = io.ReadFull(bufReader, hopPayload)
+		require.NoError(t, err)
+
+		route[i] = OnionHop{
+			NodePub: *pubKey,
+			HopPayload: HopPayload{
+				Type:    PayloadTLV,
+				Payload: hopPayload,
+			},
+		}
+	}
+
+	finalPacket, err := hex.DecodeString(testCase.Onion)
+	require.NoError(t, err)
+
+	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
+	require.NoError(t, err)
+
+	assocData, err := hex.DecodeString(testCase.Generate.AssociatedData)
+	require.NoError(t, err)
+
+	// With all the required data assembled, we'll craft a new packet.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+	pkt, err := NewOnionPacket(
+		&route, sessionKey, assocData, DeterministicPacketFiller,
+	)
+	require.NoError(t, err)
+
+	var b bytes.Buffer
+	require.NoError(t, pkt.Encode(&b))
+
+	// Finally, we expect that our packet matches the packet included in
+	// the spec's test vectors.
+	require.Equalf(t, b.Bytes(), finalPacket, "final packet does not "+
+		"match expected BOLT 4 packet, want: %s, got %s",
+		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }
 
 // TestVariablePayloadOnion tests that if we construct a packet that contains a
