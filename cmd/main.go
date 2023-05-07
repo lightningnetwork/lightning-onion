@@ -43,6 +43,23 @@ func main() {
 			},
 		},
 		{
+			Name: "nextephemeral",
+			Usage: "A helper to compute the next ephemeral key " +
+				"given the current ephemeral key and a " +
+				"private key",
+			Action: nextEphemeral,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:     "priv",
+					Required: true,
+				},
+				cli.StringFlag{
+					Name:     "pub",
+					Required: true,
+				},
+			},
+		},
+		{
 			Name:   "generate",
 			Usage:  "Build a new onion.",
 			Action: generate,
@@ -207,44 +224,58 @@ func generate(ctx *cli.Context) error {
 type onionInfo struct {
 	SessionKey     string `json:"session_key"`
 	AssociatedData string `json:"associated_data"`
+	BlindingPoint  string `json:"blinding_point"`
 	Onion          string `json:"onion"`
 }
 
 func parseOnionInfo(info *onionInfo) (*sphinx.OnionPacket, *btcec.PrivateKey,
-	[]byte, error) {
+	[]byte, *btcec.PublicKey, error) {
 
 	sessionKeyBytes, err := hex.DecodeString(info.SessionKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to decode the "+
+		return nil, nil, nil, nil, fmt.Errorf("unable to decode the "+
 			"sessionKey %v: %v", info.SessionKey, err)
 	}
 
 	if len(sessionKeyBytes) != 32 {
-		return nil, nil, nil, fmt.Errorf("session priv key must be " +
-			"32 bytes long")
+		return nil, nil, nil, nil, fmt.Errorf("session priv key must " +
+			"be 32 bytes long")
 	}
 
 	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
 
 	assocData, err := hex.DecodeString(info.AssociatedData)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to decode the "+
+		return nil, nil, nil, nil, fmt.Errorf("unable to decode the "+
 			"associate data %v: %v", info.AssociatedData, err)
 	}
 
 	onion, err := hex.DecodeString(info.Onion)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to decode the "+
+		return nil, nil, nil, nil, fmt.Errorf("unable to decode the "+
 			"onion %v: %v", info.Onion, err)
 	}
 
 	var packet sphinx.OnionPacket
 	err = packet.Decode(bytes.NewBuffer(onion))
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return &packet, sessionKey, assocData, nil
+	var blindingPoint *btcec.PublicKey
+	if info.BlindingPoint != "" {
+		bpBytes, err := hex.DecodeString(info.BlindingPoint)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+
+		blindingPoint, err = btcec.ParsePubKey(bpBytes)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+
+	return &packet, sessionKey, assocData, blindingPoint, nil
 }
 
 func peel(ctx *cli.Context) error {
@@ -260,7 +291,9 @@ func peel(ctx *cli.Context) error {
 		return err
 	}
 
-	packet, sessionKey, assocData, err := parseOnionInfo(&info)
+	packet, sessionKey, assocData, blindingPoint, err := parseOnionInfo(
+		&info,
+	)
 	if err != nil {
 		return err
 	}
@@ -272,7 +305,9 @@ func peel(ctx *cli.Context) error {
 	s.Start()
 	defer s.Stop()
 
-	p, err := s.ProcessOnionPacket(packet, assocData, 10)
+	p, err := s.ProcessOnionPacket(
+		packet, assocData, 10, sphinx.WithBlindingPoint(blindingPoint),
+	)
 	if err != nil {
 		return err
 	}
@@ -283,6 +318,39 @@ func peel(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("%x\n", w.Bytes())
+
+	return nil
+}
+
+func nextEphemeral(ctx *cli.Context) error {
+	privKeyByte, err := hex.DecodeString(ctx.String("priv"))
+	if err != nil {
+		return err
+	}
+	if len(privKeyByte) != 32 {
+		return fmt.Errorf("private key must be 32 bytes")
+	}
+
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyByte)
+
+	pubKeyBytes, err := hex.DecodeString(ctx.String("pub"))
+	if err != nil {
+		return err
+	}
+
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+	if err != nil {
+		return err
+	}
+
+	nextBlindedKey, err := sphinx.NextEphemeral(
+		&sphinx.PrivKeyECDH{PrivKey: privKey}, pubKey,
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%x\n", nextBlindedKey.SerializeCompressed())
 
 	return nil
 }
