@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 )
 
 // BOLT 4 Test Vectors
@@ -749,8 +750,8 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 	}
 }
 
-// testFileName is the name of the multi-frame onion test file.
-const testFileName = "testdata/onion-test-multi-frame.json"
+// testMultiFrameFileName is the name of the multi-frame onion test file.
+const testMultiFrameFileName = "testdata/onion-test-multi-frame.json"
 
 type jsonHop struct {
 	Type string `json:"type"`
@@ -802,35 +803,26 @@ func TestVariablePayloadOnion(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll read out the raw JSOn file at the target location.
-	jsonBytes, err := ioutil.ReadFile(testFileName)
-	if err != nil {
-		t.Fatalf("unable to read json file: %v", err)
-	}
+	jsonBytes, err := os.ReadFile(testMultiFrameFileName)
+	require.NoError(t, err)
 
 	// Once we have the raw file, we'll unpack it into our jsonTestCase
 	// struct defined above.
 	testCase := &jsonTestCase{}
-	if err := json.Unmarshal(jsonBytes, testCase); err != nil {
-		t.Fatalf("unable to parse spec json file: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
 
 	// Next, we'll populate a new OnionHop using the information included
 	// in this test case.
 	var route PaymentPath
 	for i, hop := range testCase.Generate.Hops {
 		pubKeyBytes, err := hex.DecodeString(hop.Pubkey)
-		if err != nil {
-			t.Fatalf("unable to decode pubkey: %v", err)
-		}
+		require.NoError(t, err)
+
 		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
-		}
+		require.NoError(t, err)
 
 		payload, err := hex.DecodeString(hop.Payload)
-		if err != nil {
-			t.Fatalf("unable to decode payload: %v", err)
-		}
+		require.NoError(t, err)
 
 		payloadType := jsonTypeToPayloadType(hop.Type)
 		route[i] = OnionHop{
@@ -854,39 +846,27 @@ func TestVariablePayloadOnion(t *testing.T) {
 	}
 
 	finalPacket, err := hex.DecodeString(testCase.Onion)
-	if err != nil {
-		t.Fatalf("unable to decode packet: %v", err)
-	}
+	require.NoError(t, err)
 
 	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
-	if err != nil {
-		t.Fatalf("unable to generate session key: %v", err)
-	}
+	require.NoError(t, err)
 
-	associatedData, err := hex.DecodeString(testCase.Generate.AssociatedData)
-	if err != nil {
-		t.Fatalf("unable to decode AD: %v", err)
-	}
+	assocData, err := hex.DecodeString(testCase.Generate.AssociatedData)
+	require.NoError(t, err)
 
 	// With all the required data assembled, we'll craft a new packet.
 	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
 	pkt, err := NewOnionPacket(
-		&route, sessionKey, associatedData, DeterministicPacketFiller,
+		&route, sessionKey, assocData, DeterministicPacketFiller,
 	)
-	if err != nil {
-		t.Fatalf("unable to construct onion packet: %v", err)
-	}
+	require.NoError(t, err)
 
 	var b bytes.Buffer
-	if err := pkt.Encode(&b); err != nil {
-		t.Fatalf("unable to decode onion packet: %v", err)
-	}
+	require.NoError(t, pkt.Encode(&b))
 
 	// Finally, we expect that our packet matches the packet included in
 	// the spec's test vectors.
-	if bytes.Compare(b.Bytes(), finalPacket) != 0 {
-		t.Fatalf("final packet does not match expected BOLT 4 packet, "+
-			"want: %s, got %s", hex.EncodeToString(finalPacket),
-			hex.EncodeToString(b.Bytes()))
-	}
+	require.Equalf(t, b.Bytes(), finalPacket, "final packet does not "+
+		"match expected BOLT 4 packet, want: %s, got %s",
+		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }
