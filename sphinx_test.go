@@ -68,7 +68,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
-		hopPayload, err := NewHopPayload(&hopData, nil)
+		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("unable to "+
 				"create new hop payload: %v", err)
@@ -129,7 +129,7 @@ func TestBolt4Packet(t *testing.T) {
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 		hopsData = append(hopsData, hopData)
 
-		hopPayload, err := NewHopPayload(&hopData, nil)
+		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
 			t.Fatalf("unable to make hop payload: %v", err)
 		}
@@ -523,8 +523,8 @@ func newEOBRoute(numHops uint32,
 	return fwdMsg, nodes, nil
 }
 
-func mustNewHopPayload(hopData *HopData, eob []byte) HopPayload {
-	payload, err := NewHopPayload(hopData, eob)
+func mustNewLegacyHopPayload(hopData *HopData) HopPayload {
+	payload, err := NewLegacyHopPayload(hopData)
 	if err != nil {
 		panic(err)
 	}
@@ -577,12 +577,12 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 2,
 			eobMapping: map[int]HopPayload{
-				0: mustNewHopPayload(&HopData{
+				0: mustNewLegacyHopPayload(&HopData{
 					Realm:         [1]byte{0x00},
 					ForwardAmount: 2,
 					OutgoingCltv:  3,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
-				}, nil),
+				}),
 				1: HopPayload{
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*2),
@@ -600,12 +600,12 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 100),
 				},
-				1: mustNewHopPayload(&HopData{
+				1: mustNewLegacyHopPayload(&HopData{
 					Realm:         [1]byte{0x00},
 					ForwardAmount: 22,
 					OutgoingCltv:  9,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
-				}, nil),
+				}),
 				2: HopPayload{
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 256),

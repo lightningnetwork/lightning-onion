@@ -158,7 +158,7 @@ func parsePathData(data pathData) (*sphinx.PaymentPath, *btcec.PrivateKey,
 			return nil, nil, nil, err
 		}
 
-		hopPayload, err := sphinx.NewHopPayload(nil, payload)
+		hopPayload, err := sphinx.NewTLVHopPayload(payload)
 		if err != nil {
 			return nil, nil, nil, err
 		}
