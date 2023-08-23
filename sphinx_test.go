@@ -5,13 +5,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"os"
 	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 )
 
 // BOLT 4 Test Vectors
@@ -66,7 +68,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
-		hopPayload, err := NewHopPayload(&hopData, nil)
+		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("unable to "+
 				"create new hop payload: %v", err)
@@ -127,7 +129,7 @@ func TestBolt4Packet(t *testing.T) {
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 		hopsData = append(hopsData, hopData)
 
-		hopPayload, err := NewHopPayload(&hopData, nil)
+		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
 			t.Fatalf("unable to make hop payload: %v", err)
 		}
@@ -180,7 +182,9 @@ func TestSphinxCorrectness(t *testing.T) {
 		hop := nodes[i]
 
 		t.Logf("Processing at hop: %v \n", i)
-		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
+		onionPacket, err := hop.ProcessOnionPacket(
+			fwdMsg, nil, uint32(i)+1,
+		)
 		if err != nil {
 			t.Fatalf("Node %v was unable to process the "+
 				"forwarding message: %v", i, err)
@@ -269,14 +273,17 @@ func TestSphinxNodeRelpay(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != nil {
+	_, err = nodes[0].ProcessOnionPacket(fwdMsg, nil, 1)
+	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != ErrReplayedPacket {
-		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
+	_, err = nodes[0].ProcessOnionPacket(fwdMsg, nil, 1)
+	if err != ErrReplayedPacket {
+		t.Fatalf("sphinx packet replay should be rejected, instead "+
+			"error is %v", err)
 	}
 }
 
@@ -296,14 +303,14 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1); err != nil {
+	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1, nil); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this call
 	// should not fail, even though the batch has internally recorded this
 	// as a duplicate.
-	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1)
+	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("adding duplicate sphinx packet to batch should not "+
 			"result in an error, instead got: %v", err)
@@ -342,7 +349,8 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
+	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
@@ -355,7 +363,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -387,7 +395,8 @@ func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
+	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
@@ -400,7 +409,7 @@ func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// not fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -521,8 +530,8 @@ func newEOBRoute(numHops uint32,
 	return fwdMsg, nodes, nil
 }
 
-func mustNewHopPayload(hopData *HopData, eob []byte) HopPayload {
-	payload, err := NewHopPayload(hopData, eob)
+func mustNewLegacyHopPayload(hopData *HopData) HopPayload {
+	payload, err := NewLegacyHopPayload(hopData)
 	if err != nil {
 		panic(err)
 	}
@@ -575,12 +584,12 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 2,
 			eobMapping: map[int]HopPayload{
-				0: mustNewHopPayload(&HopData{
+				0: mustNewLegacyHopPayload(&HopData{
 					Realm:         [1]byte{0x00},
 					ForwardAmount: 2,
 					OutgoingCltv:  3,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
-				}, nil),
+				}),
 				1: HopPayload{
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*2),
@@ -598,12 +607,12 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 100),
 				},
-				1: mustNewHopPayload(&HopData{
+				1: mustNewLegacyHopPayload(&HopData{
 					Realm:         [1]byte{0x00},
 					ForwardAmount: 22,
 					OutgoingCltv:  9,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
-				}, nil),
+				}),
 				2: HopPayload{
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 256),
@@ -749,8 +758,14 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 	}
 }
 
-// testFileName is the name of the multi-frame onion test file.
-const testFileName = "testdata/onion-test-multi-frame.json"
+const (
+	// testMultiFrameFileName is the name of the multi-frame onion test
+	// file.
+	testMultiFrameFileName = "testdata/onion-test-multi-frame.json"
+
+	// testTLVFileName is the name of the tlv-payload-only onion test file.
+	testTLVFileName = "testdata/onion-test.json"
+)
 
 type jsonHop struct {
 	Type string `json:"type"`
@@ -795,6 +810,85 @@ func jsonTypeToPayloadType(jsonType string) PayloadType {
 	}
 }
 
+// TestTLVPayloadOnion tests the construction of an onion where all the payloads
+// are of the TLV type.
+func TestTLVPayloadOnion(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll read out the raw JSON file at the target location.
+	jsonBytes, err := os.ReadFile(testTLVFileName)
+	require.NoError(t, err)
+
+	// Once we have the raw file, we'll unpack it into our jsonTestCase
+	// struct defined above.
+	testCase := &jsonTestCase{}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
+
+	// Next, we'll populate a new OnionHop using the information included
+	// in this test case.
+	var route PaymentPath
+	for i, hop := range testCase.Generate.Hops {
+		pubKeyBytes, err := hex.DecodeString(hop.Pubkey)
+		require.NoError(t, err)
+
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+		require.NoError(t, err)
+
+		// The test has already encoded the length of the TLV payloads,
+		// so to make it compatible with our PaymentPath, we just
+		// extract the payload.
+		payload, err := hex.DecodeString(hop.Payload)
+		require.NoError(t, err)
+
+		var (
+			bufReader = bytes.NewReader(payload)
+			b         [8]byte
+		)
+		varInt, err := ReadVarInt(bufReader, &b)
+		require.NoError(t, err)
+
+		payloadSize := uint32(varInt)
+		require.NoError(t, err)
+
+		hopPayload := make([]byte, payloadSize)
+		_, err = io.ReadFull(bufReader, hopPayload)
+		require.NoError(t, err)
+
+		route[i] = OnionHop{
+			NodePub: *pubKey,
+			HopPayload: HopPayload{
+				Type:    PayloadTLV,
+				Payload: hopPayload,
+			},
+		}
+	}
+
+	finalPacket, err := hex.DecodeString(testCase.Onion)
+	require.NoError(t, err)
+
+	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
+	require.NoError(t, err)
+
+	assocData, err := hex.DecodeString(testCase.Generate.AssociatedData)
+	require.NoError(t, err)
+
+	// With all the required data assembled, we'll craft a new packet.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+	pkt, err := NewOnionPacket(
+		&route, sessionKey, assocData, DeterministicPacketFiller,
+	)
+	require.NoError(t, err)
+
+	var b bytes.Buffer
+	require.NoError(t, pkt.Encode(&b))
+
+	// Finally, we expect that our packet matches the packet included in
+	// the spec's test vectors.
+	require.Equalf(t, b.Bytes(), finalPacket, "final packet does not "+
+		"match expected BOLT 4 packet, want: %s, got %s",
+		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
+}
+
 // TestVariablePayloadOnion tests that if we construct a packet that contains a
 // mix of the old and new payload format, that we match the version that's
 // included in the spec.
@@ -802,35 +896,26 @@ func TestVariablePayloadOnion(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll read out the raw JSOn file at the target location.
-	jsonBytes, err := ioutil.ReadFile(testFileName)
-	if err != nil {
-		t.Fatalf("unable to read json file: %v", err)
-	}
+	jsonBytes, err := os.ReadFile(testMultiFrameFileName)
+	require.NoError(t, err)
 
 	// Once we have the raw file, we'll unpack it into our jsonTestCase
 	// struct defined above.
 	testCase := &jsonTestCase{}
-	if err := json.Unmarshal(jsonBytes, testCase); err != nil {
-		t.Fatalf("unable to parse spec json file: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
 
 	// Next, we'll populate a new OnionHop using the information included
 	// in this test case.
 	var route PaymentPath
 	for i, hop := range testCase.Generate.Hops {
 		pubKeyBytes, err := hex.DecodeString(hop.Pubkey)
-		if err != nil {
-			t.Fatalf("unable to decode pubkey: %v", err)
-		}
+		require.NoError(t, err)
+
 		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
-		}
+		require.NoError(t, err)
 
 		payload, err := hex.DecodeString(hop.Payload)
-		if err != nil {
-			t.Fatalf("unable to decode payload: %v", err)
-		}
+		require.NoError(t, err)
 
 		payloadType := jsonTypeToPayloadType(hop.Type)
 		route[i] = OnionHop{
@@ -854,39 +939,27 @@ func TestVariablePayloadOnion(t *testing.T) {
 	}
 
 	finalPacket, err := hex.DecodeString(testCase.Onion)
-	if err != nil {
-		t.Fatalf("unable to decode packet: %v", err)
-	}
+	require.NoError(t, err)
 
 	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
-	if err != nil {
-		t.Fatalf("unable to generate session key: %v", err)
-	}
+	require.NoError(t, err)
 
-	associatedData, err := hex.DecodeString(testCase.Generate.AssociatedData)
-	if err != nil {
-		t.Fatalf("unable to decode AD: %v", err)
-	}
+	assocData, err := hex.DecodeString(testCase.Generate.AssociatedData)
+	require.NoError(t, err)
 
 	// With all the required data assembled, we'll craft a new packet.
 	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
 	pkt, err := NewOnionPacket(
-		&route, sessionKey, associatedData, DeterministicPacketFiller,
+		&route, sessionKey, assocData, DeterministicPacketFiller,
 	)
-	if err != nil {
-		t.Fatalf("unable to construct onion packet: %v", err)
-	}
+	require.NoError(t, err)
 
 	var b bytes.Buffer
-	if err := pkt.Encode(&b); err != nil {
-		t.Fatalf("unable to decode onion packet: %v", err)
-	}
+	require.NoError(t, pkt.Encode(&b))
 
 	// Finally, we expect that our packet matches the packet included in
 	// the spec's test vectors.
-	if bytes.Compare(b.Bytes(), finalPacket) != 0 {
-		t.Fatalf("final packet does not match expected BOLT 4 packet, "+
-			"want: %s, got %s", hex.EncodeToString(finalPacket),
-			hex.EncodeToString(b.Bytes()))
-	}
+	require.Equalf(t, b.Bytes(), finalPacket, "final packet does not "+
+		"match expected BOLT 4 packet, want: %s, got %s",
+		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }

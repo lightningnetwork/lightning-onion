@@ -10,6 +10,7 @@ import (
 	"github.com/aead/chacha20"
 	"github.com/btcsuite/btcd/btcec/v2"
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -18,6 +19,10 @@ const (
 	// during onion creation as well as during the verification.
 	HMACSize = 32
 )
+
+// chaChaPolyZeroNonce is a slice of zero bytes used in the chacha20poly1305
+// encryption and decryption.
+var chaChaPolyZeroNonce [chacha20poly1305.NonceSize]byte
 
 // Hash256 is a statically sized, 32-byte array, typically containing
 // the output of a SHA256 hash.
@@ -61,8 +66,8 @@ func (p *PrivKeyECDH) PubKey() *btcec.PublicKey {
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This is part of the SingleKeyECDH interface.
 func (p *PrivKeyECDH) ECDH(pub *btcec.PublicKey) ([32]byte, error) {
@@ -199,6 +204,31 @@ func blindBaseElement(blindingFactor btcec.ModNScalar) *btcec.PublicKey {
 	return priv.PubKey()
 }
 
+// chacha20polyEncrypt initialises the ChaCha20Poly1305 algorithm with the given
+// key and uses it to encrypt the passed message. This uses an all-zero nonce as
+// required by the route-blinding spec.
+func chacha20polyEncrypt(key, plainTxt []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return aead.Seal(plainTxt[:0], chaChaPolyZeroNonce[:], plainTxt, nil),
+		nil
+}
+
+// chacha20polyDecrypt initialises the ChaCha20Poly1305 algorithm with the given
+// key and uses it to decrypt the passed cipher text. This uses an all-zero
+// nonce as required by the route-blinding spec.
+func chacha20polyDecrypt(key, cipherTxt []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return aead.Open(cipherTxt[:0], chaChaPolyZeroNonce[:], cipherTxt, nil)
+}
+
 // sharedSecretGenerator is an interface that abstracts away exactly *how* the
 // shared secret for each hop is generated.
 //
@@ -209,17 +239,63 @@ type sharedSecretGenerator interface {
 	generateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error)
 }
 
-// generateSharedSecret generates the shared secret by given ephemeral key.
-func (r *Router) generateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error) {
+// generateSharedSecret generates the shared secret using the given ephemeral
+// pub key and the Router's private key. If a blindingPoint is provided then it
+// is used to tweak the Router's private key before creating the shared secret
+// with the ephemeral pub key. The blinding point is used to determine our
+// shared secret with the receiver. From that we can determine our shared
+// secret with the sender using the dhKey.
+func (r *Router) generateSharedSecret(dhKey,
+	blindingPoint *btcec.PublicKey) (Hash256, error) {
+
+	// If no blinding point is provided, then the un-tweaked dhKey can
+	// be used to derive the shared secret
+	if blindingPoint == nil {
+		return sharedSecret(r.onionKey, dhKey)
+	}
+
+	// We use the blinding point to calculate the blinding factor that the
+	// receiver used with us so that we can use it to tweak our priv key.
+	// The sender would have created their shared secret with our blinded
+	// pub key.
+	// 	* ss_receiver = H(k * E_receiver)
+	ssReceiver, err := sharedSecret(r.onionKey, blindingPoint)
+	if err != nil {
+		return Hash256{}, err
+	}
+
+	// Compute the blinding factor that the receiver would have used to
+	// blind our public key.
+	//
+	// 	* bf = HMAC256("blinded_node_id", ss_receiver)
+	blindingFactorBytes := generateKey(routeBlindingHMACKey, &ssReceiver)
+	var blindingFactor btcec.ModNScalar
+	blindingFactor.SetBytes(&blindingFactorBytes)
+
+	// Now, we want to calculate the shared secret between the sender and
+	// our blinded key. In other words we want to calculate:
+	// 	* ss_sender = H(E_sender * bf * k)
+	//
+	// Since the order in which the above multiplication happens does not
+	// matter, we will first multiply E_sender with the blinding factor:
+	blindedEphemeral := blindGroupElement(dhKey, blindingFactor)
+
+	// Finally, we compute the ECDH to get the shared secret, ss_sender:
+	return sharedSecret(r.onionKey, blindedEphemeral)
+}
+
+// sharedSecret does a ECDH operation on the passed private and public keys and
+// returns the result.
+func sharedSecret(priv SingleKeyECDH, pub *btcec.PublicKey) (Hash256, error) {
 	var sharedSecret Hash256
 
 	// Ensure that the public key is on our curve.
-	if !dhKey.IsOnCurve() {
+	if !pub.IsOnCurve() {
 		return sharedSecret, ErrInvalidOnionKey
 	}
 
-	// Compute our shared secret.
-	return r.onionKey.ECDH(dhKey)
+	// Compute the shared secret.
+	return priv.ECDH(pub)
 }
 
 // onionEncrypt obfuscates the data with compliance with BOLT#4. As we use a

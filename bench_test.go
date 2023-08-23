@@ -33,7 +33,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
-		hopPayload, err := NewHopPayload(&hopData, nil)
+		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
 			b.Fatalf("unable to create new hop payload: %v", err)
 		}
@@ -77,7 +77,9 @@ func BenchmarkProcessPacket(b *testing.B) {
 		pkt *ProcessedPacket
 	)
 	for i := 0; i < b.N; i++ {
-		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil, uint32(i))
+		pkt, err = path[0].ProcessOnionPacket(
+			sphinxPacket, nil, uint32(i),
+		)
 		if err != nil {
 			b.Fatalf("unable to process packet %d: %v", i, err)
 		}
