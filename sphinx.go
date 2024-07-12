@@ -613,6 +613,12 @@ func (r *Router) NextEphemeral(ephemPub *btcec.PublicKey) (*btcec.PublicKey,
 	return NextEphemeral(r.onionKey, ephemPub)
 }
 
+// OnionPublicKey returns the public key representing the onion key backing this
+// router.
+func (r *Router) OnionPublicKey() *btcec.PublicKey {
+	return r.onionKey.PubKey()
+}
+
 // unwrapPacket wraps a layer of the passed onion packet using the specified
 // shared secret and associated data. The associated data will be used to check
 // the HMAC at each hop to ensure the same data is passed along with the onion
