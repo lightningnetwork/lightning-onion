@@ -88,8 +88,6 @@ func BenchmarkProcessPacket(b *testing.B) {
 		router := path[0]
 		router.log.Stop()
 		path[0] = &Router{
-			nodeID:   router.nodeID,
-			nodeAddr: router.nodeAddr,
 			onionKey: router.onionKey,
 			log:      NewMemoryReplayLog(),
 		}

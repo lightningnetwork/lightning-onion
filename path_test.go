@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -149,8 +148,7 @@ func TestOnionRouteBlinding(t *testing.T) {
 		blindingPoint *btcec.PublicKey) *ProcessedPacket {
 
 		r := NewRouter(
-			&PrivKeyECDH{PrivKey: key}, &chaincfg.MainNetParams,
-			NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: key}, NewMemoryReplayLog(),
 		)
 
 		require.NoError(t, r.Start())
