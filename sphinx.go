@@ -9,8 +9,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 )
 
 const (
@@ -484,26 +482,14 @@ type ProcessedPacket struct {
 // of processing incoming Sphinx onion packets thereby "peeling" a layer off
 // the onion encryption which the packet is wrapped with.
 type Router struct {
-	nodeID   [AddressSize]byte
-	nodeAddr *btcutil.AddressPubKeyHash
-
 	onionKey SingleKeyECDH
-
-	log ReplayLog
+	log      ReplayLog
 }
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(nodeKey SingleKeyECDH, net *chaincfg.Params, log ReplayLog) *Router {
-	var nodeID [AddressSize]byte
-	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
-
-	// Safe to ignore the error here, nodeID is 20 bytes.
-	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
-
+func NewRouter(nodeKey SingleKeyECDH, log ReplayLog) *Router {
 	return &Router{
-		nodeID:   nodeID,
-		nodeAddr: nodeAddr,
 		onionKey: nodeKey,
 		log:      log,
 	}
@@ -625,6 +611,12 @@ func (r *Router) NextEphemeral(ephemPub *btcec.PublicKey) (*btcec.PublicKey,
 	error) {
 
 	return NextEphemeral(r.onionKey, ephemPub)
+}
+
+// OnionPublicKey returns the public key representing the onion key backing this
+// router.
+func (r *Router) OnionPublicKey() *btcec.PublicKey {
+	return r.onionKey.PubKey()
 }
 
 // unwrapPacket wraps a layer of the passed onion packet using the specified

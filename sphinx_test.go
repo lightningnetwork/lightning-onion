@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 )
@@ -52,8 +51,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		}
 
 		nodes[i] = NewRouter(
-			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
-			NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, NewMemoryReplayLog(),
 		)
 	}
 
@@ -219,12 +217,7 @@ func TestSphinxCorrectness(t *testing.T) {
 			// The next hop should have been parsed as node[i+1].
 			parsedNextHop := onionPacket.ForwardingInstructions.NextAddress[:]
 			expected := bytes.Repeat([]byte{byte(i)}, AddressSize)
-			if !bytes.Equal(parsedNextHop, expected) {
-				t.Fatalf("Processing error, next hop parsed incorrectly."+
-					" next hop should be %v, was instead parsed as %v",
-					hex.EncodeToString(nodes[i+1].nodeID[:]),
-					hex.EncodeToString(parsedNextHop))
-			}
+			require.Equal(t, expected, parsedNextHop)
 
 			fwdMsg = onionPacket.NextPacket
 		}
@@ -303,14 +296,14 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1, nil); err != nil {
+	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this call
 	// should not fail, even though the batch has internally recorded this
 	// as a duplicate.
-	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1, nil)
+	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("adding duplicate sphinx packet to batch should not "+
 			"result in an error, instead got: %v", err)
@@ -349,7 +342,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -363,7 +356,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -395,7 +388,7 @@ func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	err = tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -409,7 +402,7 @@ func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// not fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1, nil)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -499,8 +492,7 @@ func newEOBRoute(numHops uint32,
 		}
 
 		nodes[i] = NewRouter(
-			&PrivKeyECDH{PrivKey: privKey}, &chaincfg.MainNetParams,
-			NewMemoryReplayLog(),
+			&PrivKeyECDH{PrivKey: privKey}, NewMemoryReplayLog(),
 		)
 	}
 

@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/urfave/cli"
 )
@@ -300,7 +299,7 @@ func peel(ctx *cli.Context) error {
 
 	s := sphinx.NewRouter(
 		&sphinx.PrivKeyECDH{PrivKey: sessionKey},
-		&chaincfg.TestNet3Params, sphinx.NewMemoryReplayLog(),
+		sphinx.NewMemoryReplayLog(),
 	)
 	s.Start()
 	defer s.Stop()
