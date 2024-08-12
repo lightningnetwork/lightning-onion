@@ -114,7 +114,7 @@ type OnionPacket struct {
 // generateSharedSecrets by the given nodes pubkeys, generates the shared
 // secrets.
 func generateSharedSecrets(paymentPath []*btcec.PublicKey,
-	sessionKey *btcec.PrivateKey) ([]Hash256, error) {
+	sessionKey *btcec.PrivateKey) ([]Hash256, *btcec.PublicKey, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -131,7 +131,7 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	sessionKeyECDH := &PrivKeyECDH{PrivKey: sessionKey}
 	sharedSecret, err := sessionKeyECDH.ECDH(paymentPath[0])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	hopSharedSecrets[0] = sharedSecret
 	lastBlindingFactor := computeBlindingFactor(
@@ -187,7 +187,7 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 		)
 	}
 
-	return hopSharedSecrets, nil
+	return hopSharedSecrets, lastEphemeralPubKey, nil
 }
 
 // NewOnionPacket creates a new onion packet which is capable of obliviously
@@ -214,7 +214,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		return nil, fmt.Errorf("packet filler must be specified")
 	}
 
-	hopSharedSecrets, err := generateSharedSecrets(
+	hopSharedSecrets, _, err := generateSharedSecrets(
 		paymentPath.NodeKeys(), sessionKey,
 	)
 	if err != nil {
