@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const (
@@ -280,4 +281,26 @@ func NextEphemeral(privKey SingleKeyECDH,
 	nextEphem := blindGroupElement(ephemPub, blindingFactor)
 
 	return nextEphem, nil
+}
+
+// NextEphemeralPriv computes the next ephemeral priv key given the current
+// ephemeral private key and a node's public key.
+func NextEphemeralPriv(ephemPriv *PrivKeyECDH,
+	pubKey *btcec.PublicKey) (*btcec.PrivateKey, error) {
+
+	// ss = e1 * P
+	ss, err := ephemPriv.ECDH(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// bf = H( E1 || ss )
+	blindingFactor := computeBlindingFactor(ephemPriv.PubKey(), ss[:])
+
+	// e2 = e1 * bf
+	var nextPrivEphem btcec.ModNScalar
+	nextPrivEphem.Set(&ephemPriv.PrivKey.Key)
+	nextPrivEphem.Mul(&blindingFactor)
+
+	return secp.NewPrivateKey(&nextPrivEphem), nil
 }
