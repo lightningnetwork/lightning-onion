@@ -68,10 +68,10 @@ func TestBuildBlindedRoute(t *testing.T) {
 
 	// Construct the concatenated path.
 	path := &BlindedPath{
-		IntroductionPoint: pathBC.IntroductionPoint,
-		BlindingPoint:     pathBC.BlindingPoint,
-		BlindedHops: append(pathBC.BlindedHops,
-			pathED.BlindedHops...),
+		IntroductionPoint: pathBC.Path.IntroductionPoint,
+		BlindingPoint:     pathBC.Path.BlindingPoint,
+		BlindedHops: append(pathBC.Path.BlindedHops,
+			pathED.Path.BlindedHops...),
 	}
 
 	// Check that the constructed path is equal to the test vector path.

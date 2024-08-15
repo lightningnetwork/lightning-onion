@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 const (
@@ -163,11 +164,30 @@ func (i *HopInfo) Encrypt(sharedSecret Hash256) (*BlindedHopInfo, error) {
 	}, nil
 }
 
+// BlindedPathInfo holds a BlindedPath and any other items that a path
+// constructor may find useful.
+type BlindedPathInfo struct {
+	// Path holds the constructed BlindedPath which holds all info about a
+	// blinded path that must be communicated to a potential path user.
+	Path *BlindedPath
+
+	// SessionKey holds the private key that was used as the session key
+	// of the path. This is the private key for the first ephemeral blinding
+	// key of the path.
+	SessionKey *btcec.PrivateKey
+
+	// LastEphemeralKey is the very last ephemeral blinding key used on the
+	// path. This may be useful to the path creator as they can use this
+	// key to uniquely identify the path that was used for an incoming
+	// payment.
+	LastEphemeralKey *btcec.PublicKey
+}
+
 // BuildBlindedPath creates a new BlindedPath from a session key along with a
 // list of HopInfo representing the nodes in the blinded path. The first hop in
 // paymentPath is expected to be the introduction node.
 func BuildBlindedPath(sessionKey *btcec.PrivateKey,
-	paymentPath []*HopInfo) (*BlindedPath, error) {
+	paymentPath []*HopInfo) (*BlindedPathInfo, error) {
 
 	if len(paymentPath) < 1 {
 		return nil, errors.New("at least 1 hop is required to create " +
@@ -185,7 +205,9 @@ func BuildBlindedPath(sessionKey *btcec.PrivateKey,
 		keys[i] = p.NodePub
 	}
 
-	hopSharedSecrets, err := generateSharedSecrets(keys, sessionKey)
+	hopSharedSecrets, lastEphem, err := generateSharedSecrets(
+		keys, sessionKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error generating shared secret: %v",
 			err)
@@ -200,7 +222,11 @@ func BuildBlindedPath(sessionKey *btcec.PrivateKey,
 		bp.BlindedHops[i] = blindedInfo
 	}
 
-	return bp, nil
+	return &BlindedPathInfo{
+		Path:             bp,
+		SessionKey:       sessionKey,
+		LastEphemeralKey: lastEphem,
+	}, nil
 }
 
 // blindNodeID blinds the given public key using the provided shared secret.
@@ -255,4 +281,26 @@ func NextEphemeral(privKey SingleKeyECDH,
 	nextEphem := blindGroupElement(ephemPub, blindingFactor)
 
 	return nextEphem, nil
+}
+
+// NextEphemeralPriv computes the next ephemeral priv key given the current
+// ephemeral private key and a node's public key.
+func NextEphemeralPriv(ephemPriv *PrivKeyECDH,
+	pubKey *btcec.PublicKey) (*btcec.PrivateKey, error) {
+
+	// ss = e1 * P
+	ss, err := ephemPriv.ECDH(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// bf = H( E1 || ss )
+	blindingFactor := computeBlindingFactor(ephemPriv.PubKey(), ss[:])
+
+	// e2 = e1 * bf
+	var nextPrivEphem btcec.ModNScalar
+	nextPrivEphem.Set(&ephemPriv.PrivKey.Key)
+	nextPrivEphem.Mul(&blindingFactor)
+
+	return secp.NewPrivateKey(&nextPrivEphem), nil
 }

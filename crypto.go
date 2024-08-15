@@ -332,7 +332,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 			len(encryptedData))
 	}
 
-	sharedSecrets, err := generateSharedSecrets(
+	sharedSecrets, _, err := generateSharedSecrets(
 		o.circuit.PaymentPath,
 		o.circuit.SessionKey,
 	)
