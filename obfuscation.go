@@ -111,12 +111,17 @@ func (c *Circuit) Encode(w io.Writer) error {
 // OnionErrorDecrypter is a struct that's used to decrypt onion errors in
 // response to failed HTLC routing attempts according to BOLT#4.
 type OnionErrorDecrypter struct {
+	*AttrErrorStructure
 	circuit *Circuit
 }
 
-// NewOnionErrorDecrypter creates new instance of onion decrypter.
-func NewOnionErrorDecrypter(circuit *Circuit) *OnionErrorDecrypter {
+// NewOnionErrorDecrypter creates new instance of onion decrypter with the
+// provided circuit and attributable error structure.
+func NewOnionErrorDecrypter(circuit *Circuit,
+	structure *AttrErrorStructure) *OnionErrorDecrypter {
+
 	return &OnionErrorDecrypter{
-		circuit: circuit,
+		circuit:            circuit,
+		AttrErrorStructure: structure,
 	}
 }
