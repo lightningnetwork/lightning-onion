@@ -9,12 +9,18 @@ import (
 // OnionErrorEncrypter is a struct that's used to implement onion error
 // encryption as defined within BOLT0004.
 type OnionErrorEncrypter struct {
+	*AttrErrorStructure
 	sharedSecret Hash256
 }
 
-func NewOnionErrorEncrypter(sharedSecret Hash256) *OnionErrorEncrypter {
+// NewOnionErrorEncrypter creates a new encrypter with the provided shared
+// secret and attributable error structure.
+func NewOnionErrorEncrypter(sharedSecret Hash256,
+	structure *AttrErrorStructure) *OnionErrorEncrypter {
+
 	return &OnionErrorEncrypter{
-		sharedSecret: sharedSecret,
+		sharedSecret:       sharedSecret,
+		AttrErrorStructure: structure,
 	}
 }
 

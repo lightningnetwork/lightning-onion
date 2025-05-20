@@ -1,6 +1,8 @@
 package sphinx
 
-import "fmt"
+import (
+	"fmt"
+)
 
 var (
 	// ErrReplayedPacket is an error returned when a packet is rejected
@@ -24,4 +26,8 @@ var (
 	// ErrLogEntryNotFound is an error returned when a packet lookup in a replay
 	// log fails because it is missing.
 	ErrLogEntryNotFound = fmt.Errorf("sphinx packet is not in log")
+
+	// ErrInvalidAttrStructure is an error that signals that the provided
+	// attribution data have an invalid length.
+	ErrInvalidAttrStructure = fmt.Errorf("invalid attribution data length")
 )
