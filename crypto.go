@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -18,6 +19,14 @@ const (
 	// the onion. Any value lower than 32 will truncate the HMAC both
 	// during onion creation as well as during the verification.
 	HMACSize = 32
+
+	// AMMAG is the string representation for the ammag key type. Used in
+	// cypher stream generation.
+	AMMAG = "ammag"
+
+	// AMMAG_EXT is the string representation for the extended ammag key
+	// type. Used in cypher stream generation.
+	AMMAG_EXT = "ammagext"
 )
 
 // chaChaPolyZeroNonce is a slice of zero bytes used in the chacha20poly1305
@@ -301,10 +310,10 @@ func sharedSecret(priv SingleKeyECDH, pub *btcec.PublicKey) (Hash256, error) {
 // onionEncrypt obfuscates the data with compliance with BOLT#4. As we use a
 // stream cipher, calling onionEncrypt on an already encrypted piece of data
 // will decrypt it.
-func onionEncrypt(sharedSecret *Hash256, data []byte) []byte {
+func onionEncrypt(keyType string, sharedSecret *Hash256, data []byte) []byte {
 	p := make([]byte, len(data))
 
-	ammagKey := generateKey("ammag", sharedSecret)
+	ammagKey := generateKey(keyType, sharedSecret)
 	streamBytes := generateCipherStream(ammagKey, uint(len(data)))
 	xor(p, data, streamBytes)
 
@@ -370,7 +379,9 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 
 		// With the shared secret, we'll now strip off a layer of
 		// encryption from the encrypted error payload.
-		encryptedData = onionEncrypt(&sharedSecret, encryptedData)
+		encryptedData = onionEncrypt(
+			AMMAG, &sharedSecret, encryptedData,
+		)
 
 		// Next, we'll need to separate the data, from the MAC itself
 		// so we can reconstruct and verify it.
@@ -413,17 +424,141 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 // for backward failure obfuscation of the onion failure blob. By obfuscating
 // the onion failure on every node in the path we are adding additional step of
 // the security and barrier for malware nodes to retrieve valuable information.
-// The reason for using onion obfuscation is to not give
-// away to the nodes in the payment path the information about the exact
-// failure and its origin.
-func (o *OnionErrorEncrypter) EncryptError(initial bool, data []byte) []byte {
-	if initial {
-		umKey := generateKey("um", &o.sharedSecret)
-		hash := hmac.New(sha256.New, umKey[:])
-		hash.Write(data)
-		h := hash.Sum(nil)
-		data = append(h, data...)
+// The reason for using onion obfuscation is to not give away to the nodes in
+// the payment path the information about the exact failure and its origin.
+// Every node down the error path reports the recorded hold times for the HTLC,
+// so this is also passed as an argument to this function in order for this node
+// to append its own value. The attribution data is a structure which helps with
+// identifying malicious intermediate hops that may have modified the failure
+// data.
+func (o *OnionErrorEncrypter) EncryptError(initial bool, legacyData []byte,
+	attrData []byte, holdTime uint32) ([]byte, []byte, error) {
+
+	if initial && attrData != nil {
+		return nil, nil, fmt.Errorf("unable to encrypt, cannot " +
+			"initialize error with existing attribution data")
 	}
 
-	return onionEncrypt(&o.sharedSecret, data)
+	if attrData == nil {
+		attrData = o.initializePayload(holdTime)
+	}
+
+	if initial {
+		if len(legacyData) < minPaddedOnionErrorLength {
+			return nil, nil, fmt.Errorf("initial data size less "+
+				"than %v", minPaddedOnionErrorLength)
+		}
+
+		umKey := generateKey("um", &o.sharedSecret)
+		hash := hmac.New(sha256.New, umKey[:])
+		hash.Write(legacyData)
+		h := hash.Sum(nil)
+		legacyData = append(h, legacyData...)
+	} else {
+		if len(attrData) < o.hmacsAndPayloadsLen() {
+			return nil, nil, ErrInvalidAttrStructure
+		}
+
+		// Add our hold time.
+		o.addIntermediatePayload(attrData, holdTime)
+
+		// Shift hmacs to create space for the new hmacs.
+		o.shiftHmacsRight(o.hmacs(attrData))
+	}
+
+	// Update hmac block.
+	o.addHmacs(attrData, legacyData)
+
+	legacy := onionEncrypt(AMMAG, &o.sharedSecret, legacyData)
+	attrError := onionEncrypt(AMMAG_EXT, &o.sharedSecret, attrData)
+
+	return legacy, attrError, nil
+}
+
+func (o *OnionErrorEncrypter) shiftHmacsRight(hmacs []byte) {
+	totalHmacs := (o.hopCount * (o.hopCount + 1)) / 2
+
+	// Work from right to left to avoid overwriting data that is still
+	// needed.
+	srcIdx := totalHmacs - 2
+	destIdx := totalHmacs - 1
+
+	// The variable copyLen contains the number of hmacs to copy for the
+	// current hop.
+	copyLen := 1
+	for i := 0; i < o.hopCount-1; i++ {
+		// Shift the hmacs to the right for the current hop. The hmac
+		// corresponding to the assumed position that is farthest away
+		// from the error source is discarded.
+		copy(
+			hmacs[destIdx*o.hmacSize:],
+			hmacs[srcIdx*o.hmacSize:(srcIdx+copyLen)*o.hmacSize],
+		)
+
+		// The number of hmacs to copy increases by one for each
+		// iteration. The further away from the error source, the more
+		// downstream hmacs exist that are relevant.
+		copyLen++
+
+		// Update indices backwards for the next iteration.
+		srcIdx -= copyLen + 1
+		destIdx -= copyLen
+	}
+
+	// Zero out the hmac slots corresponding to every possible position
+	// relative to the error source for the current hop. This is not
+	// strictly necessary as these slots are overwritten anyway, but we
+	// clear them for cleanliness.
+	for i := 0; i < o.hopCount; i++ {
+		copy(hmacs[i*o.hmacSize:], o.zeroHmac)
+	}
+}
+
+// addHmacs updates the failure data with a series of hmacs corresponding to all
+// possible positions in the path for the current node.
+func (o *OnionErrorEncrypter) addHmacs(data []byte, message []byte) {
+	payloads := o.payloads(data)
+	hmacs := o.hmacs(data)
+
+	for i := 0; i < o.hopCount; i++ {
+		position := o.hopCount - i - 1
+		hmac := o.calculateHmac(
+			o.sharedSecret, position, message, payloads, hmacs,
+		)
+
+		copy(hmacs[i*o.hmacSize:], hmac)
+	}
+}
+
+func (o *OnionErrorEncrypter) initializePayload(holdTime uint32) []byte {
+
+	// Add space for payloads and hmacs.
+	data := make([]byte, o.hmacsAndPayloadsLen())
+
+	payloads := o.payloads(data)
+
+	// Signal final hops in the payload.
+	addPayload(payloads, holdTime)
+
+	return data
+}
+
+func (o *OnionErrorEncrypter) addIntermediatePayload(data []byte,
+	holdTime uint32) {
+
+	payloads := o.payloads(data)
+
+	// Shift payloads to create space for the new payload.
+	o.shiftPayloadsRight(payloads)
+
+	// Signal intermediate hop in the payload.
+	addPayload(payloads, holdTime)
+}
+
+func (o *OnionErrorEncrypter) shiftPayloadsRight(payloads []byte) {
+	copy(payloads[o.payloadLen():], payloads)
+}
+
+func addPayload(payloads []byte, holdTime uint32) {
+	binary.BigEndian.PutUint32(payloads, holdTime)
 }
