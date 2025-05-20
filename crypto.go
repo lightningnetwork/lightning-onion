@@ -106,6 +106,10 @@ type DecryptedError struct {
 
 	// Message is the decrypted error message.
 	Message []byte
+
+	// HoldTimes is an array of hold times reported by each node on the error
+	// path.
+	HoldTimes []uint32
 }
 
 // zeroHMAC is the special HMAC value that allows the final node to determine
@@ -333,16 +337,20 @@ const minOnionErrorLength = minPaddedOnionErrorLength + sha256.Size
 // onion failure is encrypted in backward manner, starting from the node where
 // error have occurred. As a result, in order to decrypt the error we need get
 // all shared secret and apply decryption in the reverse order. A structure is
-// returned that contains the decrypted error message and information on the
-// sender.
-func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
-	*DecryptedError, error) {
+// returned that contains the decrypted error message and information of the
+// error sender. We also report the hold times in ms for each hop on the error
+// path.
+func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
+	attrData []byte) (*DecryptedError, error) {
 
-	// Ensure the error message length is as expected.
-	if len(encryptedData) < minOnionErrorLength {
-		return nil, fmt.Errorf("invalid error length: "+
-			"expected at least %v got %v", minOnionErrorLength,
-			len(encryptedData))
+	// Ensure the error message and attribution data length is as expected.
+	if len(encryptedData) < minOnionErrorLength ||
+		len(attrData) < o.hmacsAndPayloadsLen() {
+
+		return &DecryptedError{
+			Sender:    o.circuit.PaymentPath[0],
+			SenderIdx: 1,
+		}, nil
 	}
 
 	sharedSecrets, _, err := generateSharedSecrets(
@@ -361,10 +369,16 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 	)
 	copy(dummySecret[:], bytes.Repeat([]byte{1}, 32))
 
+	// Copy the failure message data in a new variable.
+	failData := make([]byte, len(encryptedData))
+	copy(failData, encryptedData)
+
+	hopPayloads := make([]uint32, 0)
+
 	// We'll iterate a constant amount of hops to ensure that we don't give
 	// away an timing information pertaining to the position in the route
 	// that the error emanated from.
-	for i := 0; i < NumMaxHops; i++ {
+	for i := 0; i < o.hopCount; i++ {
 		var sharedSecret Hash256
 
 		// If we've already found the sender, then we'll use our dummy
@@ -378,15 +392,54 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 		}
 
 		// With the shared secret, we'll now strip off a layer of
-		// encryption from the encrypted error payload.
-		encryptedData = onionEncrypt(
-			AMMAG, &sharedSecret, encryptedData,
+		// encryption from the encrypted failure and attribution
+		// data.
+		failData = onionEncrypt(AMMAG, &sharedSecret, failData)
+		attrData = onionEncrypt(AMMAG_EXT, &sharedSecret, attrData)
+
+		payloads := o.payloads(attrData)
+		hmacs := o.hmacs(attrData)
+
+		// Let's calculate the HMAC we expect for the corresponding
+		// payloads.
+		position := o.hopCount - i - 1
+		expectedAttrHmac := o.calculateHmac(
+			sharedSecret, position, failData, payloads, hmacs,
 		)
 
-		// Next, we'll need to separate the data, from the MAC itself
-		// so we can reconstruct and verify it.
-		expectedMac := encryptedData[:sha256.Size]
-		data := encryptedData[sha256.Size:]
+		// Let's retrieve the actual HMAC from the correct position in
+		// the HMACs array.
+		actualAttrHmac := hmacs[i*o.hmacSize : (i+1)*o.hmacSize]
+
+		// If the hmac does not match up, exit with a nil message. This
+		// is not done for the dummy iterations.
+		if !bytes.Equal(actualAttrHmac, expectedAttrHmac) &&
+			sender == 0 && i < len(o.circuit.PaymentPath) {
+
+			sender = i + 1
+			msg = nil
+		}
+
+		// Extract the payload and exit with a nil message if it is
+		// invalid.
+		holdTime := o.extractPayload(payloads)
+		if sender == 0 {
+			// Store hold time reported by this node.
+			hopPayloads = append(hopPayloads, holdTime)
+
+			// Update the message.
+			msg = failData[sha256.Size:]
+		}
+
+		// Shift payloads and hmacs to the left to prepare for the next
+		// iteration.
+		o.shiftPayloadsLeft(payloads)
+		o.shiftHmacsLeft(hmacs)
+
+		// Next, we'll need to separate the failure data, from the MAC
+		// itself so we can reconstruct and verify it.
+		expectedMac := failData[:sha256.Size]
+		data := failData[sha256.Size:]
 
 		// With the data split, we'll now re-generate the MAC using its
 		// specified key.
@@ -410,10 +463,53 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
 	}
 
 	return &DecryptedError{
-		SenderIdx: sender,
 		Sender:    o.circuit.PaymentPath[sender-1],
+		SenderIdx: sender,
 		Message:   msg,
+		HoldTimes: hopPayloads,
 	}, nil
+}
+
+// extractPayload extracts the payload and payload origin information from the
+// given byte slice.
+func (o *OnionErrorDecrypter) extractPayload(payloadBytes []byte) uint32 {
+	// Extract payload.
+	holdTime := binary.BigEndian.Uint32(payloadBytes[0:o.payloadLen()])
+
+	return holdTime
+}
+
+func (o *OnionErrorDecrypter) shiftPayloadsLeft(payloads []byte) {
+	copy(payloads, payloads[o.payloadLen():o.hopCount*o.payloadLen()])
+}
+
+func (o *OnionErrorDecrypter) shiftHmacsLeft(hmacs []byte) {
+	// Work from left to right to avoid overwriting data that is still
+	// needed later on in the shift operation.
+	srcIdx := o.hopCount
+	destIdx := 0
+	copyLen := o.hopCount - 1
+	for i := 0; i < o.hopCount-1; i++ {
+		// Clear first hmac slot. This slot is for the position farthest
+		// away from the error source. Because we are shifting, this
+		// cannot be relevant.
+		copy(hmacs[destIdx*o.hmacSize:], o.zeroHmac)
+
+		// The hmacs of the downstream hop become the remaining hmacs
+		// for the current hop.
+		copy(
+			hmacs[(destIdx+1)*o.hmacSize:],
+			hmacs[srcIdx*o.hmacSize:(srcIdx+copyLen)*o.hmacSize],
+		)
+
+		srcIdx += copyLen
+		destIdx += copyLen + 1
+		copyLen--
+	}
+
+	// Clear the very last hmac slot. Because we just shifted, the most
+	// downstream hop can never be the error source.
+	copy(hmacs[destIdx*o.hmacSize:], o.zeroHmac)
 }
 
 // EncryptError is used to make data obfuscation using the generated shared
