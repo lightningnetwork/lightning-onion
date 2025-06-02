@@ -69,7 +69,9 @@ func TestAttributableOnionFailure(t *testing.T) {
 
 	// Emulate that sender node receive the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	decryptedError, err := deobfuscator.DecryptError(legacyData, attrData)
+	decryptedError, err := deobfuscator.DecryptError(
+		legacyData, attrData, true,
+	)
 	require.NoError(t, err)
 
 	// We should understand the node from which error have been received.
@@ -144,7 +146,9 @@ func TestOnionFailureCorruption(t *testing.T) {
 
 	// Emulate that sender node receive the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	decryptedError, err := deobfuscator.DecryptError(legacyData, attrData)
+	decryptedError, err := deobfuscator.DecryptError(
+		legacyData, attrData, true,
+	)
 	require.NoError(t, err)
 
 	// Assert that the second hop is correctly identified as the error
@@ -247,7 +251,9 @@ func TestAttributableFailureSpecVector(t *testing.T) {
 
 	// Emulate that sender node receives the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	decryptedError, err := deobfuscator.DecryptError(legacyData, attrData)
+	decryptedError, err := deobfuscator.DecryptError(
+		legacyData, attrData, true,
+	)
 	require.NoError(t, err)
 
 	// Check that message have been properly de-obfuscated.
@@ -291,7 +297,9 @@ func TestAttributableOnionFailureZeroesMessage(t *testing.T) {
 	// unwrap it, by applying obfuscation and checking the hmac.
 	obfuscatedData := make([]byte, 20000)
 
-	decryptedError, err := deobfuscator.DecryptError(obfuscatedData, nil)
+	decryptedError, err := deobfuscator.DecryptError(
+		obfuscatedData, nil, true,
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, decryptedError.SenderIdx)
@@ -317,7 +325,9 @@ func TestAttributableOnionFailureShortMessage(t *testing.T) {
 	obfuscatedData := make([]byte, deobfuscator.hmacsAndPayloadsLen()-1)
 	failureMsg := bytes.Repeat([]byte{1}, minOnionErrorLength)
 
-	decryptedError, err := deobfuscator.DecryptError(failureMsg, obfuscatedData)
+	decryptedError, err := deobfuscator.DecryptError(
+		failureMsg, obfuscatedData, true,
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, decryptedError.SenderIdx)
