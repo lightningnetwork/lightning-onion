@@ -42,7 +42,7 @@ func TestOnionFailure(t *testing.T) {
 
 	// Emulate the situation when last hop creates the onion failure
 	// message and send it back.
-	legacyData, attrData, err := obfuscator.EncryptError(
+	legacyData, _, err := obfuscator.EncryptError(
 		true, failureData, nil, 0,
 	)
 	require.NoError(t, err)
@@ -55,8 +55,8 @@ func TestOnionFailure(t *testing.T) {
 			sharedSecrets[i], attributableErrorTestStructure,
 		)
 
-		legacyData, attrData, err = obfuscator.EncryptError(
-			false, legacyData, attrData, 1,
+		legacyData, _, err = obfuscator.EncryptError(
+			false, legacyData, nil, 1,
 		)
 		require.NoError(t, err)
 	}
@@ -69,7 +69,9 @@ func TestOnionFailure(t *testing.T) {
 
 	// Emulate that sender node receive the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	decryptedError, err := deobfuscator.DecryptError(legacyData, attrData)
+	decryptedError, err := deobfuscator.DecryptError(
+		legacyData, nil, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to de-obfuscate the onion failure: %v", err)
 	}
@@ -278,7 +280,9 @@ func TestOnionFailureSpecVector(t *testing.T) {
 
 	// Emulate that sender node receives the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	decryptedError, err := deobfuscator.DecryptError(legacyData, attrData)
+	decryptedError, err := deobfuscator.DecryptError(
+		legacyData, attrData, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to de-obfuscate the onion failure: %v", err)
 	}
