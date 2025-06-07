@@ -60,7 +60,7 @@ func (b *Batch) Put(seqNum uint16, hashPrefix *HashPrefix, cltv uint32) error {
 	// Check to see if this hash prefix is already included in this batch.
 	// If so, we will opportunistically mark this index as replayed.
 	if _, ok := b.replayCache[*hashPrefix]; ok {
-		b.ReplaySet.Add(seqNum)
+		b.ReplaySet.Add(seqNum, cltv)
 		return nil
 	}
 
