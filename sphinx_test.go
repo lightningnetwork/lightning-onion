@@ -106,8 +106,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 
 func TestBolt4Packet(t *testing.T) {
 	var (
-		route    PaymentPath
-		hopsData []HopData
+		route PaymentPath
 	)
 	for i, pubKeyHex := range bolt4PubKeys {
 		pubKeyBytes, err := hex.DecodeString(pubKeyHex)
@@ -125,7 +124,6 @@ func TestBolt4Packet(t *testing.T) {
 			OutgoingCltv:  uint32(i),
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
-		hopsData = append(hopsData, hopData)
 
 		hopPayload, err := NewLegacyHopPayload(&hopData)
 		if err != nil {
@@ -157,7 +155,7 @@ func TestBolt4Packet(t *testing.T) {
 		t.Fatalf("unable to decode onion packet: %v", err)
 	}
 
-	if bytes.Compare(b.Bytes(), finalPacket) != 0 {
+	if !bytes.Equal(b.Bytes(), finalPacket) {
 		t.Fatalf("final packet does not match expected BOLT 4 packet, "+
 			"want: %s, got %s", hex.EncodeToString(finalPacket),
 			hex.EncodeToString(b.Bytes()))
