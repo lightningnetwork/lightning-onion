@@ -393,6 +393,129 @@ func TestOnionRouteBlinding(t *testing.T) {
 	}
 }
 
+// TestOnionMessageRouteBlinding tests that an onion message packet can
+// correctly be processed by a node in a blinded route.
+func TestOnionMessageRouteBlinding(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll read out the raw Json file at the target location.
+	jsonBytes, err := os.ReadFile(blindedOnionMessageOnionTestFileName)
+	require.NoError(t, err)
+
+	// Once we have the raw file, we'll unpack it into our
+	// onionMessageJsonTestCase struct defined below.
+	testCase := &onionMessageJsonTestCase{}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
+
+	// Extract the original onion message packet to be processed.
+	onion, err := hex.DecodeString(testCase.OnionMessage.OnionMessagePacket)
+	require.NoError(t, err)
+
+	onionBytes := bytes.NewReader(onion)
+	onionPacket := &OnionPacket{}
+	require.NoError(t, onionPacket.Decode(onionBytes))
+
+	// peelOnion is a helper closure that can be used to set up a Router
+	// and use it to process the given onion packet.
+	peelOnion := func(key *btcec.PrivateKey,
+		blindingPoint *btcec.PublicKey,
+		onionPacket *OnionPacket) *ProcessedPacket {
+
+		r := NewRouter(&PrivKeyECDH{PrivKey: key}, NewMemoryReplayLog())
+
+		require.NoError(t, r.Start())
+		defer r.Stop()
+
+		// Onion messages don't use associated data, so we pass in nil
+		// here. Also, we set a random value for incomingCLTV as it's
+		// only used as an accompanying purposefully general type in the
+		// ReplayLog.
+		res, err := r.ProcessOnionPacket(
+			onionPacket, nil, 10,
+			WithBlindingPoint(blindingPoint),
+		)
+		require.NoError(t, err)
+
+		return res
+	}
+
+	hops := testCase.Generate.Hops
+
+	// There are some things that the processor of the onion will only be
+	// able to determine from the actual contents of the onion_message and
+	// the encrypted_recipient_date it receives. These things include the
+	// first_path_key for the introduction point and the
+	// next_path_key_override. This test doesn't decode the onion_message
+	// and the decryption of the encrypted_recipient_data so it doesn't
+	// extract these values. Instead we provide them manually. It also needs
+	// to know where the next_path_key_override is located in the route,
+	// hence it needs the concatIndex, where the part of the blinded route
+	// constructed by Dave starts.
+	var (
+		firstPathKey = pubKeyFromString(
+			testCase.Route.FirstPathKey,
+		)
+		concatIndex         = 1
+		nextPathKeyOverride = pubKeyFromString(
+			hops[0].EncodedOnionMessageTLVs.NextPathKeyOverride,
+		)
+	)
+
+	// Onion message routes are always entirely blinded, so the first hop
+	// will always use the first path key.
+	pathKey := firstPathKey
+
+	currentOnionPacket := onionPacket
+	for i, hop := range testCase.Decrypt.Hops {
+		// We encode the onion message packet to a buffer at each hop to
+		// compare it to the onion message packet in the test vector.
+		buff := bytes.NewBuffer(nil)
+		require.NoError(t, currentOnionPacket.Encode(buff))
+
+		// hop.OnionMessage contains the onion_message hex string. This
+		// contains the type 513 (two bytes), the path_key (33 bytes)
+		// and the length of the onion_message_packet (two bytes). We
+		// are only interested in the onion_message_packet so we only
+		// check that part. 2 + 33 + 2 = 37 bytes, so we skip the first
+		// 37 bytes, which equals 74 hex characters.
+		const onionMessageHexHeaderLen = 74
+
+		require.Equal(
+			t, hop.OnionMessage[onionMessageHexHeaderLen:],
+			hex.EncodeToString(buff.Bytes()),
+		)
+
+		priv := privKeyFromString(hop.PrivKey)
+
+		if i == concatIndex {
+			pathKey = nextPathKeyOverride
+		}
+
+		// With peelOnion we call into ProcessOnionPacket (with the
+		// functional option WithBlindingPoint) and we expect that the
+		// onion message packet for this hop is processed without error,
+		// otherwise peelOnion fails the test.
+		processedPkt := peelOnion(
+			priv, pathKey, currentOnionPacket,
+		)
+
+		// We derive the next path key from the current path key and the
+		// private key of the current hop. The new path key will be used
+		// to peel the next hop's onion unless it is overridden by a
+		// path key  override.
+		pathKey, err = NextEphemeral(
+			&PrivKeyECDH{priv}, pathKey,
+		)
+		require.NoError(t, err)
+
+		// We set the current onion packet to the next packet in the
+		// processed packet. This is the packet that the next hop will
+		// process. During the next iteration we will run all the above
+		// checks on this packet.
+		currentOnionPacket = processedPkt.NextPacket
+	}
+}
+
 type onionBlindingJsonTestCase struct {
 	Generate generateOnionData `json:"generate"`
 	Decrypt  decryptData       `json:"decrypt"`
@@ -432,10 +555,10 @@ type blindingJsonTestCase struct {
 }
 
 type onionMessageJsonTestCase struct {
-	Generate generateOnionMessageData `json:"generate"`
-	Route    routeOnionMessageData    `json:"route"`
-	// OnionMessage onionMessageData        `json:"onionmessage"`
-	Decrypt decryptOnionMessageData `json:"decrypt"`
+	Generate     generateOnionMessageData `json:"generate"`
+	Route        routeOnionMessageData    `json:"route"`
+	OnionMessage onionMessageData         `json:"onionmessage"`
+	Decrypt      decryptOnionMessageData  `json:"decrypt"`
 }
 
 type routeData struct {
@@ -448,6 +571,10 @@ type routeOnionMessageData struct {
 	FirstNodeId  string                   `json:"first_node_id"`
 	FirstPathKey string                   `json:"first_path_key"`
 	Hops         []blindedOnionMessageHop `json:"hops"`
+}
+
+type onionMessageData struct {
+	OnionMessagePacket string `json:"onion_message_packet"`
 }
 
 type unblindData struct {
