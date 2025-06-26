@@ -39,6 +39,49 @@ var (
 	testLegacyRouteNumHops = 20
 )
 
+// encodeTLVRecord encodes a TLV record with the given type and value.
+func encodeTLVRecord(recordType uint64, value []byte) []byte {
+	var buf bytes.Buffer
+
+	// Encode type as varint
+	writeVarInt(&buf, recordType)
+
+	// Encode length as varint
+	writeVarInt(&buf, uint64(len(value)))
+
+	// Write value
+	buf.Write(value)
+
+	return buf.Bytes()
+}
+
+// writeVarInt writes a variable-length integer to the buffer.
+func writeVarInt(buf *bytes.Buffer, n uint64) {
+	if n < 0xfd {
+		buf.WriteByte(byte(n))
+	} else if n <= 0xffff {
+		buf.WriteByte(0xfd)
+		buf.WriteByte(byte(n))
+		buf.WriteByte(byte(n >> 8))
+	} else if n <= 0xffffffff {
+		buf.WriteByte(0xfe)
+		buf.WriteByte(byte(n))
+		buf.WriteByte(byte(n >> 8))
+		buf.WriteByte(byte(n >> 16))
+		buf.WriteByte(byte(n >> 24))
+	} else {
+		buf.WriteByte(0xff)
+		buf.WriteByte(byte(n))
+		buf.WriteByte(byte(n >> 8))
+		buf.WriteByte(byte(n >> 16))
+		buf.WriteByte(byte(n >> 24))
+		buf.WriteByte(byte(n >> 32))
+		buf.WriteByte(byte(n >> 40))
+		buf.WriteByte(byte(n >> 48))
+		buf.WriteByte(byte(n >> 56))
+	}
+}
+
 func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
@@ -160,6 +203,89 @@ func TestBolt4Packet(t *testing.T) {
 			"want: %s, got %s", hex.EncodeToString(finalPacket),
 			hex.EncodeToString(b.Bytes()))
 	}
+}
+
+// TestTLVPayloadMessagePacket tests the creation and encoding of an onion
+// message packet that uses a TLV payload for each hop in the route. This test
+// uses the test vectors defined in the BOLT 4 specification. The test reads a
+// JSON file containing a predefined route, session key, and the expected final
+// onion packet. It then constructs the route hop-by-hop, manually creating the
+// TLV payload for each, before creating a new onion packet with NewOnionPacket.
+// The test concludes by asserting that the newly encoded packet is identical to
+// the one specified in the test vector.
+func TestTLVPayloadMessagePacket(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll read out the raw JSON file at the target location.
+	jsonBytes, err := os.ReadFile(testOnionMessageFileName)
+	require.NoError(t, err)
+
+	// Once we have the raw file, we'll unpack it into our jsonTestCase
+	// struct defined above.
+	testCase := &onionMessageJsonTestCase{}
+	require.NoError(t, json.Unmarshal(jsonBytes, testCase))
+
+	// Next, we'll populate a new OnionHop using the information included
+	// in this test case.
+	var route PaymentPath
+	for i, hop := range testCase.Route.Hops {
+		pubKeyBytes, err := hex.DecodeString(hop.BlindedNodeID)
+		require.NoError(t, err)
+
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+		require.NoError(t, err)
+
+		encryptedRecipientData, err := hex.DecodeString(
+			hop.EncryptedRecipientData,
+		)
+		require.NoError(t, err)
+
+		// Manually encode our onion payload
+		var b bytes.Buffer
+
+		if i == len(testCase.Route.Hops)-1 {
+			helloBytes := []byte("hello")
+			// Encode TLV record for type 1 (hello message)
+			b.Write(encodeTLVRecord(1, helloBytes))
+		}
+
+		// Encode TLV record for type 4 (encrypted recipient data)
+		b.Write(encodeTLVRecord(4, encryptedRecipientData))
+
+		route[i] = OnionHop{
+			NodePub: *pubKey,
+			HopPayload: HopPayload{
+				Type:    PayloadTLV,
+				Payload: b.Bytes(),
+			},
+		}
+	}
+
+	finalPacket, err := hex.DecodeString(
+		testCase.OnionMessage.OnionMessagePacket,
+	)
+	require.NoError(t, err)
+
+	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
+
+	require.NoError(t, err)
+
+	// With all the required data assembled, we'll craft a new packet.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+
+	pkt, err := NewOnionPacket(
+		&route, sessionKey, nil, DeterministicPacketFiller,
+	)
+	require.NoError(t, err)
+
+	var b bytes.Buffer
+	require.NoError(t, pkt.Encode(&b))
+
+	// Finally, we expect that our packet matches the packet included in
+	// the spec's test vectors.
+	require.Equalf(t, finalPacket, b.Bytes(), "final packet does not "+
+		"match expected BOLT 4 packet, want: %s, got %s",
+		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }
 
 func TestSphinxCorrectness(t *testing.T) {
@@ -755,6 +881,9 @@ const (
 
 	// testTLVFileName is the name of the tlv-payload-only onion test file.
 	testTLVFileName = "testdata/onion-test.json"
+
+	// testOnionMessageFileName is the name of the onion message test file.
+	testOnionMessageFileName = "testdata/blinded-onion-message-onion-test.json"
 )
 
 type jsonHop struct {
