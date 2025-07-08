@@ -70,6 +70,12 @@ func main() {
 						"data.",
 					Value: defaultHopDataPath,
 				},
+				cli.BoolFlag{
+					Name: "onion-message",
+					Usage: "Create an onion message " +
+						"packet rather than a " +
+						"payment onion.",
+				},
 			},
 		},
 		{
@@ -205,6 +211,7 @@ func generate(ctx *cli.Context) error {
 
 	msg, err := sphinx.NewOnionPacket(
 		path, sessionKey, assocData, sphinx.DeterministicPacketFiller,
+		ctx.Bool("onion-message"),
 	)
 	if err != nil {
 		return fmt.Errorf("error creating message: %v", err)
