@@ -70,6 +70,13 @@ func main() {
 						"data.",
 					Value: defaultHopDataPath,
 				},
+				cli.IntFlag{
+					Name: "payload-size",
+					Usage: "The size for a payload for a " +
+						"single hop. Defaults to the " +
+						"max routing payload size",
+					Value: sphinx.MaxRoutingPayloadSize,
+				},
 			},
 		},
 		{
@@ -203,8 +210,10 @@ func generate(ctx *cli.Context) error {
 		return fmt.Errorf("could not peel onion spec: %v", err)
 	}
 
+	payloadSize := ctx.Int("payload-size")
 	msg, err := sphinx.NewOnionPacket(
 		path, sessionKey, assocData, sphinx.DeterministicPacketFiller,
+		sphinx.WithMaxPayloadSize(payloadSize),
 	)
 	if err != nil {
 		return fmt.Errorf("error creating message: %v", err)
