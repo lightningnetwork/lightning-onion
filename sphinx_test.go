@@ -299,6 +299,62 @@ func TestTLVPayloadMessagePacket(t *testing.T) {
 		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }
 
+// TestProcessOnionMessageZeroLengthPayload tests that we can properly process
+// an onion message that has a zero-length payload.
+func TestProcessOnionMessageZeroLengthPayload(t *testing.T) {
+	t.Parallel()
+
+	// First, create a router that will be the destination of the onion
+	// message.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	router := NewRouter(&PrivKeyECDH{privKey}, NewMemoryReplayLog())
+	err = router.Start()
+	require.NoError(t, err)
+
+	defer router.Stop()
+
+	// Next, create a session key for the onion packet.
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// We'll create a simple one-hop path.
+	path := &PaymentPath{
+		{
+			NodePub: *privKey.PubKey(),
+		},
+	}
+
+	// The hop payload will be an empty TLV payload.
+	payload, err := NewTLVHopPayload(nil)
+	require.NoError(t, err)
+	require.Empty(t, payload.Payload)
+	path[0].HopPayload = payload
+
+	// Now, create the onion packet.
+	onionPacket, err := NewOnionPacket(
+		path, sessionKey, nil, DeterministicPacketFiller,
+	)
+	require.NoError(t, err)
+
+	// We'll now process the packet, making sure to indicate that this is
+	// an onion message.
+	processedPacket, err := router.ProcessOnionPacket(
+		onionPacket, nil, 0, WithTLVPayloadOnly(),
+	)
+	require.NoError(t, err)
+
+	// The packet should be decoded as an exit node.
+	require.EqualValues(t, ExitNode, processedPacket.Action)
+
+	// The payload should be of type TLV.
+	require.Equal(t, PayloadTLV, processedPacket.Payload.Type)
+
+	// And the payload should be empty.
+	require.Empty(t, processedPacket.Payload.Payload)
+}
+
 func TestSphinxCorrectness(t *testing.T) {
 	nodes, _, hopDatas, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
 	if err != nil {

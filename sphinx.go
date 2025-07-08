@@ -510,7 +510,8 @@ func (r *Router) Stop() {
 // processOnionCfg is a set of config values that can be used to modify how an
 // onion is processed.
 type processOnionCfg struct {
-	blindingPoint *btcec.PublicKey
+	blindingPoint  *btcec.PublicKey
+	tlvPayloadOnly bool
 }
 
 // ProcessOnionOpt defines the signature of a function option that can be used
@@ -522,6 +523,14 @@ type ProcessOnionOpt func(cfg *processOnionCfg)
 func WithBlindingPoint(point *btcec.PublicKey) ProcessOnionOpt {
 	return func(cfg *processOnionCfg) {
 		cfg.blindingPoint = point
+	}
+}
+
+// WithTLVPayloadOnly is a functional option that signals that the onion packet
+// being processed is an onion_message_packet.
+func WithTLVPayloadOnly() ProcessOnionOpt {
+	return func(cfg *processOnionCfg) {
+		cfg.tlvPayloadOnly = true
 	}
 }
 
@@ -560,7 +569,9 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte,
 	// Continue to optimistically process this packet, deferring replay
 	// protection until the end to reduce the penalty of multiple IO
 	// operations.
-	packet, err := processOnionPacket(onionPkt, &sharedSecret, assocData)
+	packet, err := processOnionPacket(
+		onionPkt, &sharedSecret, assocData, cfg.tlvPayloadOnly,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +605,9 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket, assocData []byte,
 		return nil, err
 	}
 
-	return processOnionPacket(onionPkt, &sharedSecret, assocData)
+	return processOnionPacket(
+		onionPkt, &sharedSecret, assocData, cfg.tlvPayloadOnly,
+	)
 }
 
 // DecryptBlindedHopData uses the router's private key to decrypt data encrypted
@@ -625,7 +638,8 @@ func (r *Router) OnionPublicKey() *btcec.PublicKey {
 // packet. This function returns the next inner onion packet layer, along with
 // the hop data extracted from the outer onion packet.
 func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
-	assocData []byte) (*OnionPacket, *HopPayload, error) {
+	assocData []byte, tlvPayloadOnly bool) (*OnionPacket, *HopPayload,
+	error) {
 
 	dhKey := onionPkt.EphemeralKey
 	routeInfo := onionPkt.RoutingInfo
@@ -649,8 +663,8 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	zeroBytes := bytes.Repeat([]byte{0}, MaxPayloadSize)
 	headerWithPadding := append(routeInfo[:], zeroBytes...)
 
-	var hopInfo [numStreamBytes]byte
-	xor(hopInfo[:], headerWithPadding, streamBytes)
+	hopInfo := make([]byte, numStreamBytes)
+	xor(hopInfo, headerWithPadding, streamBytes)
 
 	// Randomize the DH group element for the next hop using the
 	// deterministic blinding factor.
@@ -660,8 +674,10 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// With the MAC checked, and the payload decrypted, we can now parse
 	// out the payload so we can derive the specified forwarding
 	// instructions.
-	var hopPayload HopPayload
-	if err := hopPayload.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+	hopPayload, err := DecodeHopPayload(
+		bytes.NewReader(hopInfo), tlvPayloadOnly,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -676,14 +692,14 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		HeaderMAC:    hopPayload.HMAC,
 	}
 
-	return innerPkt, &hopPayload, nil
+	return innerPkt, hopPayload, nil
 }
 
 // processOnionPacket performs the primary key derivation and handling of onion
 // packets. The processed packets returned from this method should only be used
 // if the packet was not flagged as a replayed packet.
 func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
-	assocData []byte) (*ProcessedPacket, error) {
+	assocData []byte, tlvPayloadOnly bool) (*ProcessedPacket, error) {
 
 	// First, we'll unwrap an initial layer of the onion packet. Typically,
 	// we'll only have a single layer to unwrap, However, if the sender has
@@ -693,7 +709,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// they can properly check the HMAC and unwrap a layer for their
 	// handoff hop.
 	innerPkt, outerHopPayload, err := unwrapPacket(
-		onionPkt, sharedSecret, assocData,
+		onionPkt, sharedSecret, assocData, tlvPayloadOnly,
 	)
 	if err != nil {
 		return nil, err
@@ -703,7 +719,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], outerHopPayload.HMAC[:]) == 0 {
+	if bytes.Equal(zeroHMAC[:], outerHopPayload.HMAC[:]) {
 		action = ExitNode
 	}
 
@@ -794,7 +810,9 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 	// Continue to optimistically process this packet, deferring replay
 	// protection until the end to reduce the penalty of multiple IO
 	// operations.
-	packet, err := processOnionPacket(onionPkt, &sharedSecret, assocData)
+	packet, err := processOnionPacket(
+		onionPkt, &sharedSecret, assocData, cfg.tlvPayloadOnly,
+	)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,9 @@
 package sphinx
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrReplayedPacket is an error returned when a packet is rejected
@@ -24,4 +27,7 @@ var (
 	// ErrLogEntryNotFound is an error returned when a packet lookup in a replay
 	// log fails because it is missing.
 	ErrLogEntryNotFound = fmt.Errorf("sphinx packet is not in log")
+
+	// ErrIOReadFull is returned when an io read full operation fails.
+	ErrIOReadFull = errors.New("io read full error")
 )
