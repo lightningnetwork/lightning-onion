@@ -601,6 +601,13 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte,
 		o(cfg)
 	}
 
+	// If this is an onion message, a blinding point must be provided and
+	// associated data must be nil.
+	if cfg.isOnionMessage && cfg.blindingPoint == nil && assocData != nil {
+		return nil, fmt.Errorf("blinding point must be provided for " +
+			"onion messages, and associated data must be nil")
+	}
+
 	// Compute the shared secret for this onion packet.
 	sharedSecret, err := r.generateSharedSecret(
 		onionPkt.EphemeralKey, cfg.blindingPoint,
