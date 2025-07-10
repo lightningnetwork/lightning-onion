@@ -41,26 +41,16 @@ const (
 	LegacyHopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
 		OutgoingCLTVSize + NumPaddingBytes + HMACSize)
 
-	// MaxPayloadSize is the maximum size an `update_add_htlc` payload for a
-	// single hop can be. This is the worst case scenario of a single hop,
-	// consuming all available space. We need to know this in order to
-	// generate a sufficiently long stream of pseudo-random bytes when
-	// encrypting/decrypting the payload. This field is here for backwards
-	// compatibility. Throughout the code we use StandardRoutingInfoSize
-	// because of the more apt naming.
-	MaxPayloadSize          = standardRoutingInfoSize
-	StandardRoutingInfoSize = standardRoutingInfoSize
+	// MaxRoutingPayloadSize is the maximum size an `update_add_htlc`
+	// payload for a single hop can be. This is the worst case scenario of a
+	// single hop, consuming all available space. We need to know this in
+	// order to generate a sufficiently long stream of pseudo-random bytes
+	// when encrypting/decrypting the payload.
+	MaxRoutingPayloadSize = 1300
 
-	// standardRoutingInfoSize is the fixed size of the the routing info. This
-	// consists of an addressSize byte address and a HMACSize byte HMAC for
-	// each hop of the route, the first pair in cleartext and the following
-	// pairs increasingly obfuscated. If not all space is used up, the
-	// remainder is padded with null-bytes, also obfuscated.
-	standardRoutingInfoSize = 1300
-
-	// JumboRoutingInfoSize is the size of the routing info for a jumbo
-	// onion packet.
-	JumboRoutingInfoSize = 32768
+	// MaxOnionMessagePayloadSize is the size of the routing info for a
+	// onion messaging jumbo onion packet.
+	MaxOnionMessagePayloadSize = 32768
 
 	// keyLen is the length of the keys used to generate cipher streams and
 	// encrypt payloads. Since we use SHA256 to generate the keys, the
@@ -73,13 +63,13 @@ const (
 
 var (
 	ErrStandardRoutingPayloadSizeExceeded = fmt.Errorf(
-		"max routing info size of %v bytes exceeded",
-		StandardRoutingInfoSize,
+		"max routing payload size of %v bytes exceeded",
+		MaxRoutingPayloadSize,
 	)
 
 	ErrMessageRoutingPayloadSizeExceeded = fmt.Errorf(
-		"max onion message routing info size of %v bytes exceeded",
-		JumboRoutingInfoSize,
+		"max onion message routing payload size of %v bytes exceeded",
+		MaxOnionMessagePayloadSize,
 	)
 )
 
@@ -212,16 +202,16 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 
 	totalPayloadSize := paymentPath.TotalPayloadSize()
 
-	routingInfoLen := StandardRoutingInfoSize
-	maxRoutingInfoErr := ErrStandardRoutingPayloadSizeExceeded
-	if isOnionMessage && totalPayloadSize > StandardRoutingInfoSize {
-		routingInfoLen = JumboRoutingInfoSize
-		maxRoutingInfoErr = ErrMessageRoutingPayloadSizeExceeded
+	routingPayloadLen := MaxRoutingPayloadSize
+	maxRoutingPayloadErr := ErrStandardRoutingPayloadSizeExceeded
+	if isOnionMessage && totalPayloadSize > MaxRoutingPayloadSize {
+		routingPayloadLen = MaxOnionMessagePayloadSize
+		maxRoutingPayloadErr = ErrMessageRoutingPayloadSizeExceeded
 	}
 
 	// Check whether total payload size doesn't exceed the hard maximum.
-	if totalPayloadSize > routingInfoLen {
-		return nil, maxRoutingInfoErr
+	if totalPayloadSize > routingPayloadLen {
+		return nil, maxRoutingPayloadErr
 	}
 
 	// Before we proceed, we'll check that the payload types of each hop
@@ -254,13 +244,13 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding(
-		"rho", paymentPath, hopSharedSecrets, routingInfoLen,
+		"rho", paymentPath, hopSharedSecrets, routingPayloadLen,
 	)
 
 	// Allocate zero'd out byte slices to store the final mix header packet
 	// and the hmac for each hop.
 	var (
-		mixHeader     = make([]byte, routingInfoLen)
+		mixHeader     = make([]byte, routingPayloadLen)
 		nextHmac      [HMACSize]byte
 		hopPayloadBuf bytes.Buffer
 	)
@@ -287,7 +277,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// Next, using the key dedicated for our stream cipher, we'll
 		// generate enough bytes to obfuscate this layer of the onion
 		// packet.
-		streamBytes := generateCipherStream(rhoKey, uint(routingInfoLen))
+		streamBytes := generateCipherStream(rhoKey, uint(routingPayloadLen))
 		payload := paymentPath[i].HopPayload
 
 		// Before we assemble the packet, we'll shift the current
