@@ -357,9 +357,10 @@ func TestOnionRouteBlinding(t *testing.T) {
 
 		priv := privKeyFromString(hop.NodePrivKey)
 
-		if i == introPointIndex {
+		switch i {
+		case introPointIndex:
 			blindingPoint = firstBlinding
-		} else if i == concatIndex {
+		case concatIndex:
 			blindingPoint = blindingOverride
 		}
 
