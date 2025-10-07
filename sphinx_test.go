@@ -549,7 +549,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 1,
 			eobMapping: map[int]HopPayload{
-				0: HopPayload{
+				0: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize-HMACSize),
 				},
@@ -561,7 +561,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 1,
 			eobMapping: map[int]HopPayload{
-				0: HopPayload{
+				0: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*3),
 				},
@@ -582,7 +582,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 					OutgoingCltv:  3,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
 				}),
-				1: HopPayload{
+				1: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), LegacyHopDataSize*2),
 				},
@@ -595,7 +595,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 3,
 			eobMapping: map[int]HopPayload{
-				0: HopPayload{
+				0: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 100),
 				},
@@ -605,7 +605,7 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 					OutgoingCltv:  9,
 					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
 				}),
-				2: HopPayload{
+				2: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 256),
 				},
@@ -617,15 +617,15 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 3,
 			eobMapping: map[int]HopPayload{
-				0: HopPayload{
+				0: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 200),
 				},
-				1: HopPayload{
+				1: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 256),
 				},
-				2: HopPayload{
+				2: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 150),
 				},
@@ -637,15 +637,15 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		{
 			numNodes: 3,
 			eobMapping: map[int]HopPayload{
-				0: HopPayload{
+				0: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 500),
 				},
-				1: HopPayload{
+				1: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 500),
 				},
-				2: HopPayload{
+				2: {
 					Type:    PayloadTLV,
 					Payload: bytes.Repeat([]byte("a"), 500),
 				},
