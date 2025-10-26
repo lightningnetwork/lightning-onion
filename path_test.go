@@ -537,7 +537,6 @@ type decryptOnionMessageData struct {
 }
 
 type decryptHops struct {
-	//nolint:tagliatelle
 	Onion        string `json:"onion"`
 	NodePrivKey  string `json:"node_privkey"`
 	NextBlinding string `json:"next_blinding"`
@@ -592,8 +591,7 @@ type generateOnionMessageData struct {
 }
 
 type unblindedHop struct {
-	NodePrivKey string `json:"node_privkey"`
-	//nolint:tagliatelle
+	NodePrivKey         string `json:"node_privkey"`
 	EphemeralPubKey     string `json:"ephemeral_pubkey"`
 	DecryptedData       string `json:"decrypted_data"`
 	NextEphemeralPubKey string `json:"next_ephemeral_pubkey"`

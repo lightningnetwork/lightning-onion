@@ -105,12 +105,7 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 
 	// Create numHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
-		privKey, err := btcec.NewPrivateKey()
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("Unable to "+
-				"generate random key for sphinx node: %v", err)
-		}
-
+		privKey, _ := btcec.NewPrivateKey()
 		nodes[i] = NewRouter(
 			&PrivKeyECDH{PrivKey: privKey}, NewMemoryReplayLog(),
 		)

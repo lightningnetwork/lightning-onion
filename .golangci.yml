@@ -52,6 +52,11 @@ linters:
       # Checks the number of statements in a function.
       statements: 50
 
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+
     wsl_v5:
       # We adopt a more relaxed cuddling rule by enabling
       # `allow-whole-block`. This allows a variable declaration to be

@@ -228,7 +228,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	// exit early.
 	numHops := paymentPath.TrueRouteLength()
 	if numHops == 0 {
-		return nil, fmt.Errorf("route of length zero passed in")
+		return nil, ErrZeroHops
 	}
 
 	totalPayloadSize := paymentPath.TotalPayloadSize()
@@ -407,20 +407,23 @@ func generateHeaderPadding(key string, path *PaymentPath,
 func (f *OnionPacket) Encode(w io.Writer) error {
 	ephemeral := f.EphemeralKey.SerializeCompressed()
 
-	if _, err := w.Write([]byte{f.Version}); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(ephemeral); err != nil {
-		return err
-	}
-
-	_, err := w.Write(f.RoutingInfo)
+	_, err := w.Write([]byte{f.Version})
 	if err != nil {
 		return err
 	}
 
-	if _, err := w.Write(f.HeaderMAC[:]); err != nil {
+	_, err = w.Write(ephemeral)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(f.RoutingInfo)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(f.HeaderMAC[:])
+	if err != nil {
 		return err
 	}
 
