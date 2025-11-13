@@ -86,49 +86,61 @@ func (hp *HopPayload) Encode(w io.Writer) error {
 	return encodeTLVHopPayload(hp, w)
 }
 
-// Decode unpacks an encoded HopPayload from the passed reader into the target
-// HopPayload.
-func (hp *HopPayload) Decode(r io.Reader) error {
-	bufReader := bufio.NewReader(r)
-
-	// In order to properly parse the payload, we'll need to check the
-	// first byte. We'll use a bufio reader to peek at it without consuming
-	// it from the buffer.
-	peekByte, err := bufReader.Peek(1)
-	if err != nil {
-		return err
-	}
-
+// DecodeHopPayload unpacks an encoded HopPayload from the passed reader into
+// the target HopPayload. tlvGuaranteed should be set to true if the caller only
+// wishes to accept TLV encoded payloads. By doing so, zero-lengt tlv payloads
+// are supported. If set to false, then the function will inspect the first byte
+// to determine the type of payload.
+func DecodeHopPayload(r io.Reader, tlvGuaranteed bool) (*HopPayload, error) {
 	var (
-		legacyPayload = isLegacyPayloadByte(peekByte[0])
-		payloadSize   uint16
+		payloadSize uint16
+		payloadType = PayloadTLV
+		hmac        [HMACSize]byte
+		bufReader   = bufio.NewReader(r)
 	)
 
-	if legacyPayload {
+	// If we are not sure if this is a TLV or legacy payload, then we need
+	// to inspect the first byte to determine the type of payload. The first
+	// byte is either a realm (legacy) or the beginning of a var-int
+	// encoding the length of the payload (TLV). We'll use a bufio reader to
+	// peek at it without consuming it from the buffer.
+	peekByte, err := bufReader.Peek(1)
+	if err != nil {
+		return nil, fmt.Errorf("peek first payload byte: %w", err)
+	}
+
+	if !tlvGuaranteed && isLegacyPayloadByte(peekByte[0]) {
+		// If we're not guaranteed TLV, and the first byte indicates a
+		// legacy payload, then we treat this as a legacy payload.
+		payloadType = PayloadLegacy
 		payloadSize = legacyPayloadSize()
-		hp.Type = PayloadLegacy
 	} else {
+		// Otherwise, we treat this as a TLV payload.
 		payloadSize, err = tlvPayloadSize(bufReader)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		hp.Type = PayloadTLV
 	}
 
-	// Now that we know the payload size, we'll create a  new buffer to
-	// read it out in full.
-	//
-	// TODO(roasbeef): can avoid all these copies
-	hp.Payload = make([]byte, payloadSize)
-	if _, err := io.ReadFull(bufReader, hp.Payload[:]); err != nil {
-		return err
-	}
-	if _, err := io.ReadFull(bufReader, hp.HMAC[:]); err != nil {
-		return err
+	// Now that we know the payload size, we'll create a new buffer to read
+	// it out in full.
+	payload := make([]byte, payloadSize)
+
+	_, err = io.ReadFull(bufReader, payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrIOReadFull, err)
 	}
 
-	return nil
+	_, err = io.ReadFull(bufReader, hmac[:])
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrIOReadFull, err)
+	}
+
+	return &HopPayload{
+		Type:    payloadType,
+		Payload: payload,
+		HMAC:    hmac,
+	}, nil
 }
 
 // HopData attempts to extract a set of forwarding instructions from the target
@@ -314,8 +326,12 @@ func legacyNumBytes() int {
 	return LegacyHopDataSize
 }
 
-// isLegacyPayload returns true if the given byte is equal to the 0x00 byte
-// which indicates that the payload should be decoded as a legacy payload.
+// isLegacyPayloadByte determines if the first byte of a hop payload indicates
+// that it is a legacy payload. The first byte of a legacy payload will always
+// be 0x00, as this is the realm. For TLV payloads, the first byte is a
+// var-int encoding the length of the payload. A TLV stream can be empty, in
+// which case its length is 0, which is also encoded as a 0x00 byte. This
+// creates an ambiguity between a legacy payload and an empty TLV payload.
 func isLegacyPayloadByte(b byte) bool {
 	return b == 0x00
 }
