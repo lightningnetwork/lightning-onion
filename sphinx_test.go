@@ -1439,3 +1439,60 @@ func TestVariablePayloadOnion(t *testing.T) {
 		"match expected BOLT 4 packet, want: %s, got %s",
 		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
 }
+
+// TestUnwrapPacketBeyondRoutingInfoBoundary tests that unwrapPacket does not
+// read into the zero-padding area when processing a malformed onion packet
+// with an oversized payload.
+func TestUnwrapPacketBeyondRoutingInfoBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Create a router to get a valid key pair.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Compute shared secret as unwrapPacket would.
+	sessionKeyECDH := &PrivKeyECDH{PrivKey: sessionKey}
+	sharedSecretArr, err := sessionKeyECDH.ECDH(privKey.PubKey())
+	require.NoError(t, err)
+	sharedSecret := Hash256(sharedSecretArr)
+
+	// Generate the rho key and stream bytes for encryption.
+	rhoKey := generateKey("rho", &sharedSecret)
+	streamBytes := generateCipherStream(rhoKey, uint(MaxRoutingPayloadSize))
+
+	// Create routing info with a malicious payload size.
+	// 0xfd 0x04 0xf2 encodes 1266 in BigSize format.
+	// With 3-byte length + 1266-byte payload + 32-byte HMAC = 1301 bytes,
+	// exceeding the 1300-byte boundary of an update_add_htlc packet.
+	routingInfo := make([]byte, MaxRoutingPayloadSize)
+
+	// Build the plaintext payload that will be encrypted.
+	plaintext := bytes.Repeat([]byte{0xaa}, MaxRoutingPayloadSize)
+	plaintext[0] = 0xfd
+	plaintext[1] = 0x04
+	plaintext[2] = 0xf2
+
+	// Encrypt the routing info by XORing with stream bytes.
+	xor(routingInfo, plaintext, streamBytes[:MaxRoutingPayloadSize])
+
+	// Compute valid HMAC for the packet.
+	muKey := generateKey("mu", &sharedSecret)
+	headerMAC := calcMac(muKey, routingInfo)
+
+	// Create the onion packet.
+	onionPkt := &OnionPacket{
+		Version:      baseVersion,
+		EphemeralKey: sessionKey.PubKey(),
+		RoutingInfo:  routingInfo,
+		HeaderMAC:    headerMAC,
+	}
+
+	// Process the packet - this should fail because the payload size
+	// exceeds the routing info boundary.
+	_, _, err = unwrapPacket(onionPkt, &sharedSecret, nil, true)
+	expectedErr := fmt.Errorf("%w: %w", ErrIOReadFull, io.ErrUnexpectedEOF)
+	require.Equal(t, expectedErr, err)
+}
