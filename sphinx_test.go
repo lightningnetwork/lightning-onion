@@ -634,7 +634,7 @@ func TestSphinxSingleHop(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpay(t *testing.T) {
+func TestSphinxNodeReplay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
@@ -662,7 +662,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpaySameBatch(t *testing.T) {
+func TestSphinxNodeReplaySameBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
@@ -708,7 +708,7 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
+func TestSphinxNodeReplayLaterBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
