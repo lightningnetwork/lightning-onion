@@ -163,11 +163,11 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 // newOnionMessageRoute creates a new onion message route with the specified
 // number of hops. It concatenates two blinded paths right in the middle of the
 // route, hence it needs at least 2 hops.
-func newOnionMessageRoute(numHops int) (*OnionPacket, *PaymentPath, []*Router,
-	error) {
+func newOnionMessageRoute(numHops int, lastHopMessage []byte) (*OnionPacket,
+	*PaymentPath, []*Router, *BlindedPath, error) {
 
 	if numHops < 1 {
-		return nil, nil, nil, ErrInsufficientHops
+		return nil, nil, nil, nil, ErrInsufficientHops
 	}
 
 	// Create routers for each hop.
@@ -196,7 +196,7 @@ func newOnionMessageRoute(numHops int) (*OnionPacket, *PaymentPath, []*Router,
 		secondSessionKey,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Create the route from the blinded path, always adding the
@@ -206,11 +206,10 @@ func newOnionMessageRoute(numHops int) (*OnionPacket, *PaymentPath, []*Router,
 		var b bytes.Buffer
 
 		if i == len(blindedPath.BlindedHops)-1 {
-			hello := []byte("hello")
 			// Encode TLV record for type 4 (cipher text)
 			b.Write(encodeTLVRecord(4, hop.CipherText))
 			// Encode TLV record for type 65 (hello message)
-			b.Write(encodeTLVRecord(65, hello))
+			b.Write(encodeTLVRecord(65, lastHopMessage))
 		} else {
 			// Encode TLV record for type 4 (cipher text)
 			b.Write(encodeTLVRecord(4, hop.CipherText))
@@ -242,10 +241,10 @@ func newOnionMessageRoute(numHops int) (*OnionPacket, *PaymentPath, []*Router,
 		WithMaxPayloadSize(payloadSize),
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return onionPacket, &route, nodes, nil
+	return onionPacket, &route, nodes, blindedPath, nil
 }
 
 func createBlindedPath(firstPathNodes []*Router, secondPathNodes []*Router,
@@ -634,7 +633,8 @@ func TestSphinxSingleHop(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpay(t *testing.T) {
+func TestSphinxNodeReplay(t *testing.T) {
+	t.Parallel()
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
@@ -662,7 +662,8 @@ func TestSphinxNodeRelpay(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpaySameBatch(t *testing.T) {
+func TestSphinxNodeReplaySameBatch(t *testing.T) {
+	t.Parallel()
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
@@ -708,7 +709,8 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
+func TestSphinxNodeReplayLaterBatch(t *testing.T) {
+	t.Parallel()
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, _, fwdMsg, err := newTestRoute(testLegacyRouteNumHops)
@@ -918,17 +920,61 @@ func mustNewLegacyHopPayload(hopData *HopData) HopPayload {
 func TestPaymentPathTotalPayloadSizeExceeds1300(t *testing.T) {
 	t.Parallel()
 
-	onionPacket, route, _, err := newOnionMessageRoute(15)
+	// Scenario A: Create a new single-hop onion message routeA with a
+	// payload that exceeds 1300 bytes.
+	onionPacketA, routeA, nodesA, blindedPathA, err := newOnionMessageRoute(
+		1, bytes.Repeat([]byte("b"), 1500),
+	)
 	require.NoError(t, err, "newOnionMessageRoute should not return an "+
 		"error")
 
-	totalSize := route.TotalPayloadSize()
+	totalSize := routeA.TotalPayloadSize()
 	require.Greater(t, totalSize, 1300, "TotalPayloadSize should be "+
 		"greater than 1300")
 
-	require.Len(t, onionPacket.RoutingInfo, MaxOnionMessagePayloadSize,
+	require.Len(t, onionPacketA.RoutingInfo, MaxOnionMessagePayloadSize,
 		"RoutingInfo length should be equal to "+
 			"MaxOnionMessagePayloadSize")
+
+	routerA := nodesA[0]
+	require.NoError(t, routerA.Start())
+
+	defer routerA.Stop()
+
+	_, err = routerA.ProcessOnionPacket(
+		onionPacketA, nil, 10,
+		WithBlindingPoint(blindedPathA.BlindingPoint),
+	)
+	require.NoError(t, err, "DecodeHopPayload should not return an "+
+		"error")
+
+	// Scenario B: Create a new multi-hop onion message route that exceeds
+	// 1300 bytes through the number of hops.
+	onionPacketB, routeB, nodesB, blindedPathB, err := newOnionMessageRoute(
+		15, []byte("hello"),
+	)
+	require.NoError(t, err, "newOnionMessageRoute should not return an "+
+		"error")
+
+	totalSizeB := routeB.TotalPayloadSize()
+	require.Greater(t, totalSizeB, 1300, "TotalPayloadSize should be "+
+		"greater than 1300")
+
+	require.Len(t, onionPacketB.RoutingInfo, MaxOnionMessagePayloadSize,
+		"RoutingInfo length should be equal to "+
+			"MaxOnionMessagePayloadSize")
+
+	routerB := nodesB[0]
+	require.NoError(t, routerB.Start())
+
+	defer routerB.Stop()
+
+	_, err = routerB.ProcessOnionPacket(
+		onionPacketB, nil, 10,
+		WithBlindingPoint(blindedPathB.BlindingPoint),
+	)
+	require.NoError(t, err, "DecodeHopPayload should not return an "+
+		"error")
 }
 
 // TestSingleHopOnionMessage test that we can create and encode a single-hop
@@ -936,7 +982,7 @@ func TestPaymentPathTotalPayloadSizeExceeds1300(t *testing.T) {
 func TestSingleHopOnionMessage(t *testing.T) {
 	t.Parallel()
 
-	packet, route, nodes, err := newOnionMessageRoute(1)
+	packet, route, nodes, _, err := newOnionMessageRoute(1, []byte("hello"))
 	require.NoError(t, err, "newOnionMessageRoute should not return an "+
 		"error")
 
@@ -1438,4 +1484,62 @@ func TestVariablePayloadOnion(t *testing.T) {
 	require.Equalf(t, b.Bytes(), finalPacket, "final packet does not "+
 		"match expected BOLT 4 packet, want: %s, got %s",
 		hex.EncodeToString(finalPacket), hex.EncodeToString(b.Bytes()))
+}
+
+// TestUnwrapPacketBeyondRoutingInfoBoundary tests that unwrapPacket does not
+// read into the zero-padding area when processing a malformed onion packet
+// with an oversized payload.
+func TestUnwrapPacketBeyondRoutingInfoBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Create a router to get a valid key pair.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Compute shared secret as unwrapPacket would.
+	sessionKeyECDH := &PrivKeyECDH{PrivKey: sessionKey}
+	sharedSecretArr, err := sessionKeyECDH.ECDH(privKey.PubKey())
+	require.NoError(t, err)
+
+	sharedSecret := Hash256(sharedSecretArr)
+
+	// Generate the rho key and stream bytes for encryption.
+	rhoKey := generateKey("rho", &sharedSecret)
+	streamBytes := generateCipherStream(rhoKey, uint(MaxRoutingPayloadSize))
+
+	// Create routing info with a malicious payload size.
+	// 0xfd 0x04 0xf2 encodes 1266 in BigSize format.
+	// With 3-byte length + 1266-byte payload + 32-byte HMAC = 1301 bytes,
+	// exceeding the 1300-byte boundary of an update_add_htlc packet.
+	routingInfo := make([]byte, MaxRoutingPayloadSize)
+
+	// Build the plaintext payload that will be encrypted.
+	plaintext := bytes.Repeat([]byte{0xaa}, MaxRoutingPayloadSize)
+	plaintext[0] = 0xfd
+	plaintext[1] = 0x04
+	plaintext[2] = 0xf2
+
+	// Encrypt the routing info by XORing with stream bytes.
+	xor(routingInfo, plaintext, streamBytes[:MaxRoutingPayloadSize])
+
+	// Compute valid HMAC for the packet.
+	muKey := generateKey("mu", &sharedSecret)
+	headerMAC := calcMac(muKey, routingInfo)
+
+	// Create the onion packet.
+	onionPkt := &OnionPacket{
+		Version:      baseVersion,
+		EphemeralKey: sessionKey.PubKey(),
+		RoutingInfo:  routingInfo,
+		HeaderMAC:    headerMAC,
+	}
+
+	// Process the packet - this should fail because the payload size
+	// exceeds the routing info boundary.
+	_, _, err = unwrapPacket(onionPkt, &sharedSecret, nil, true)
+	expectedErr := fmt.Errorf("%w: %w", ErrIOReadFull, io.ErrUnexpectedEOF)
+	require.Equal(t, expectedErr, err)
 }

@@ -744,7 +744,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// out the payload so we can derive the specified forwarding
 	// instructions.
 	hopPayload, err := DecodeHopPayload(
-		bytes.NewReader(hopInfo), tlvPayloadOnly,
+		bytes.NewReader(hopInfo[:routingInfoLen]), tlvPayloadOnly,
 	)
 	if err != nil {
 		return nil, nil, err
