@@ -2,6 +2,8 @@ package sphinx
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMemoryReplayLogStorageAndRetrieval tests that the non-batch methods on
@@ -129,4 +131,82 @@ func TestMemoryReplayLogPutBatch(t *testing.T) {
 	if replays.Size() != 1 || !replays.Contains(1) {
 		t.Fatalf("Unexpected replay set after adding batch 2 to log: %v", err)
 	}
+}
+
+// TestNoOpReplayLog tests that NoOpReplayLog performs no replay protection,
+// allowing all packets through without storing any state.
+func TestNoOpReplayLog(t *testing.T) {
+	t.Parallel()
+
+	rl := NewNoOpReplayLog()
+
+	// Start and Stop should succeed without error.
+	require.NoError(t, rl.Start())
+	defer func() {
+		require.NoError(t, rl.Stop())
+	}()
+
+	var hashPrefix HashPrefix
+
+	hashPrefix[0] = 1
+
+	// Get should always return ErrLogEntryNotFound since nothing is stored.
+	_, err := rl.Get(&hashPrefix)
+	require.ErrorIs(t, err, ErrLogEntryNotFound)
+
+	// Put should always succeed.
+	require.NoError(t, rl.Put(&hashPrefix, 1))
+
+	// Put the same packet again - should still succeed (no replay
+	// detection).
+	require.NoError(t, rl.Put(&hashPrefix, 1))
+
+	// Get should still return ErrLogEntryNotFound (nothing is stored).
+	_, err = rl.Get(&hashPrefix)
+	require.ErrorIs(t, err, ErrLogEntryNotFound)
+
+	// Delete should succeed.
+	require.NoError(t, rl.Delete(&hashPrefix))
+}
+
+// TestNoOpReplayLogPutBatch tests that NoOpReplayLog's PutBatch marks batches
+// as committed and never reports replays.
+func TestNoOpReplayLogPutBatch(t *testing.T) {
+	t.Parallel()
+
+	rl := NewNoOpReplayLog()
+
+	var hashPrefix1, hashPrefix2 HashPrefix
+
+	hashPrefix1[0] = 1
+	hashPrefix2[0] = 2
+
+	// Create a batch with duplicate packets.
+	batch1 := NewBatch([]byte{1})
+	require.NoError(t, batch1.Put(1, &hashPrefix1, 1))
+	require.NoError(t, batch1.Put(2, &hashPrefix1, 1))
+
+	replays, err := rl.PutBatch(batch1)
+	require.NoError(t, err)
+	require.True(t, batch1.IsCommitted, "Batch should be marked as "+
+		"committed")
+
+	// NoOpReplayLog doesn't detect intra-batch replays (that's done by
+	// Batch itself), but it should return an empty set from its own
+	// detection.
+	require.NotNil(t, replays)
+
+	// Create another batch with the same hash prefix - should not detect
+	// replay since NoOpReplayLog doesn't store anything.
+	batch2 := NewBatch([]byte{2})
+	require.NoError(t, batch2.Put(1, &hashPrefix1, 1))
+	require.NoError(t, batch2.Put(2, &hashPrefix2, 2))
+
+	replays, err = rl.PutBatch(batch2)
+	require.NoError(t, err)
+	require.True(t, batch2.IsCommitted, "Batch should be marked as "+
+		"committed")
+
+	// Should report no replays since NoOpReplayLog doesn't track state.
+	require.Equal(t, 0, replays.Size(), "Expected empty replay set")
 }

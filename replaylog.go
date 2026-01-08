@@ -184,5 +184,53 @@ func (rl *MemoryReplayLog) PutBatch(batch *Batch) (*ReplaySet, error) {
 	return replays, nil
 }
 
-// A compile time asserting *MemoryReplayLog implements the RelayLog interface.
+// A compile time asserting *MemoryReplayLog implements the ReplayLog interface.
 var _ ReplayLog = (*MemoryReplayLog)(nil)
+
+// NoOpReplayLog is a ReplayLog implementation that performs no replay
+// protection. This can be used when replay protection is handled externally
+// or is not needed (e.g., for onion messaging where replay protection is
+// not required).
+type NoOpReplayLog struct{}
+
+// NewNoOpReplayLog constructs a new NoOpReplayLog, which is an implementation
+// of ReplayLog that performs no replay protection.
+func NewNoOpReplayLog() *NoOpReplayLog {
+	return &NoOpReplayLog{}
+}
+
+// Start is a no-op.
+func (NoOpReplayLog) Start() error {
+	return nil
+}
+
+// Stop is a no-op.
+func (NoOpReplayLog) Stop() error {
+	return nil
+}
+
+// Get always returns ErrLogEntryNotFound since no entries are ever stored.
+func (NoOpReplayLog) Get(*HashPrefix) (uint32, error) {
+	return 0, ErrLogEntryNotFound
+}
+
+// Put is a no-op and always returns nil, allowing all packets through.
+func (NoOpReplayLog) Put(*HashPrefix, uint32) error {
+	return nil
+}
+
+// Delete is a no-op.
+func (NoOpReplayLog) Delete(*HashPrefix) error {
+	return nil
+}
+
+// PutBatch marks the batch as committed and returns an empty replay set,
+// indicating no replays were detected.
+func (NoOpReplayLog) PutBatch(batch *Batch) (*ReplaySet, error) {
+	batch.IsCommitted = true
+	return NewReplaySet(), nil
+}
+
+// A compile time assertion that *NoOpReplayLog implements the ReplayLog
+// interface.
+var _ ReplayLog = (*NoOpReplayLog)(nil)
