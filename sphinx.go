@@ -263,7 +263,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		return nil, err
 	}
 
-	// Allocate zero'd out byte slices to store the final mix header packet
+	// Allocate zeroed out byte slices to store the final mix header packet
 	// and the hmac for each hop.
 	var (
 		mixHeader     = make([]byte, cfg.payloadSize)
