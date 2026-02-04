@@ -606,11 +606,17 @@ func WithTLVPayloadOnly() ProcessOnionOpt {
 // in the onion packet to derive the shared secret. Finally, if the MAC doesn't
 // check the packet is again rejected.
 //
-// In the case of a successful packet processing, and ProcessedPacket struct is
+// The replayData parameter is passed to the ReplayLog and can be used by
+// implementations to store auxiliary data alongside the packet hash. For
+// example, in HTLC forwarding this could be the incoming CLTV value. When using
+// NoOpReplayLog (no replay protection), this value is ignored and can be set
+// to 0.
+//
+// In the case of a successful packet processing, a ProcessedPacket struct is
 // returned which houses the newly parsed packet, along with instructions on
 // what to do next.
 func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte,
-	incomingCltv uint32, opts ...ProcessOnionOpt) (*ProcessedPacket,
+	replayData uint32, opts ...ProcessOnionOpt) (*ProcessedPacket,
 	error) {
 
 	cfg := &processOnionCfg{}
@@ -642,7 +648,8 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte,
 
 	// Atomically compare this hash prefix with the contents of the on-disk
 	// log, persisting it only if this entry was not detected as a replay.
-	if err := r.log.Put(hashPrefix, incomingCltv); err != nil {
+	err = r.log.Put(hashPrefix, replayData)
+	if err != nil {
 		return nil, err
 	}
 
@@ -853,11 +860,17 @@ func (r *Router) BeginTxn(id []byte, nels int) *Tx {
 // in the onion packet to derive the shared secret. Finally, if the MAC doesn't
 // check the packet is again rejected.
 //
-// In the case of a successful packet processing, and ProcessedPacket struct is
+// The replayData parameter is passed to the ReplayLog and can be used by
+// implementations to store auxiliary data alongside the packet hash. For
+// example, in HTLC forwarding this could be the incoming CLTV value. When using
+// NoOpReplayLog (no replay protection), this value is ignored and can be set
+// to 0.
+//
+// In the case of a successful packet processing, a ProcessedPacket struct is
 // returned which houses the newly parsed packet, along with instructions on
 // what to do next.
 func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
-	assocData []byte, incomingCltv uint32, opts ...ProcessOnionOpt) error {
+	assocData []byte, replayData uint32, opts ...ProcessOnionOpt) error {
 
 	cfg := &processOnionCfg{}
 	for _, o := range opts {
@@ -891,7 +904,7 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 
 	// Add the hash prefix to pending batch of shared secrets that will be
 	// written later via Commit().
-	err = t.batch.Put(seqNum, hashPrefix, incomingCltv)
+	err = t.batch.Put(seqNum, hashPrefix, replayData)
 	if err != nil {
 		return err
 	}
