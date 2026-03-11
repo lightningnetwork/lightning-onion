@@ -266,16 +266,6 @@ func TestAttributableFailureSpecVector(t *testing.T) {
 	)
 
 	require.Equal(t, len(paymentPath), decryptedError.SenderIdx)
-
-	// Now let's verify the attributable error fields.
-	require.Equal(t, decryptedError.Message, failureData)
-
-	require.Equal(t,
-		paymentPath[len(paymentPath)-1].SerializeCompressed(),
-		decryptedError.Sender.SerializeCompressed(),
-	)
-
-	require.Equal(t, len(paymentPath), decryptedError.SenderIdx)
 }
 
 // TestAttributableOnionFailureZeroesMessage checks that a garbage failure is
@@ -330,7 +320,6 @@ func TestAttributableOnionFailureShortMessage(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.Equal(t, 1, decryptedError.SenderIdx)
 	require.Equal(t, 1, decryptedError.SenderIdx)
 }
 

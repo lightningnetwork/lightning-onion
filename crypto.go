@@ -20,13 +20,13 @@ const (
 	// during onion creation as well as during the verification.
 	HMACSize = 32
 
-	// AMMAG is the string representation for the ammag key type. Used in
+	// Ammag is the string representation for the ammag key type. Used in
 	// cypher stream generation.
-	AMMAG = "ammag"
+	Ammag = "ammag"
 
-	// AMMAG_EXT is the string representation for the extended ammag key
+	// AmmagExt is the string representation for the extended ammag key
 	// type. Used in cypher stream generation.
-	AMMAG_EXT = "ammagext"
+	AmmagExt = "ammagext"
 )
 
 // chaChaPolyZeroNonce is a slice of zero bytes used in the chacha20poly1305
@@ -371,9 +371,9 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 				Sender:    o.circuit.PaymentPath[0],
 				SenderIdx: 1,
 			}, nil
-		} else {
-			validAttr = false
 		}
+
+		validAttr = false
 	}
 
 	sharedSecrets, _, err := generateSharedSecrets(
@@ -396,7 +396,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 	failData := make([]byte, len(encryptedData))
 	copy(failData, encryptedData)
 
-	hopPayloads := make([]uint32, 0)
+	holdTimes := make([]uint32, 0)
 
 	// We'll iterate a constant amount of hops to ensure that we don't give
 	// away an timing information pertaining to the position in the route
@@ -418,13 +418,13 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 		// encryption from the encrypted failure and attribution
 		// data. This needs to be done before parsing the attribution
 		// data, as the attribution data HMACs commit to it.
-		failData = onionEncrypt(AMMAG, &sharedSecret, failData)
+		failData = onionEncrypt(Ammag, &sharedSecret, failData)
 
 		// If the attribution data are valid then do another round of
 		// attribution data decryption.
 		if validAttr {
 			attrData = onionEncrypt(
-				AMMAG_EXT, &sharedSecret, attrData,
+				AmmagExt, &sharedSecret, attrData,
 			)
 
 			payloads := o.payloads(attrData)
@@ -447,12 +447,10 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 			if !bytes.Equal(actualAttrHmac, expectedAttrHmac) &&
 				sender == 0 && i < len(o.circuit.PaymentPath) {
 
-				switch strictAttribution {
-				case true:
+				if strictAttribution {
 					sender = i + 1
 					msg = nil
-
-				case false:
+				} else {
 					// Flag the attribution data as invalid
 					// from this point onwards. This will
 					// prevent the loop from trying to
@@ -462,12 +460,13 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 				}
 			}
 
-			// Extract the payload and exit with a nil message if it
-			// is invalid.
-			holdTime := o.extractPayload(payloads)
+			// Extract hold time from the payload.
+			holdTime := binary.BigEndian.Uint32(
+				payloads[:o.fixedPayloadLen],
+			)
 			if sender == 0 && validAttr {
 				// Store hold time reported by this node.
-				hopPayloads = append(hopPayloads, holdTime)
+				holdTimes = append(holdTimes, holdTime)
 
 				// Update the message.
 				msg = failData[sha256.Size:]
@@ -509,19 +508,12 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte,
 		Sender:    o.circuit.PaymentPath[sender-1],
 		SenderIdx: sender,
 		Message:   msg,
-		HoldTimes: hopPayloads,
+		HoldTimes: holdTimes,
 	}, nil
 }
 
-// extractPayload extracts the payload and payload origin information from the
-// given byte slice.
-func (o *OnionErrorDecrypter) extractPayload(payloadBytes []byte) uint32 {
-	// Extract payload.
-	holdTime := binary.BigEndian.Uint32(payloadBytes[0:o.payloadLen()])
-
-	return holdTime
-}
-
+// shiftPayloadsLeft shifts all payloads one position to the left, preparing
+// for the next decryption iteration.
 func (o *OnionErrorDecrypter) shiftPayloadsLeft(payloads []byte) {
 	copy(payloads, payloads[o.payloadLen():o.hopCount*o.payloadLen()])
 }
@@ -608,19 +600,21 @@ func (o *OnionErrorEncrypter) EncryptError(initial bool, legacyData []byte,
 	// Update hmac block.
 	o.addHmacs(attrData, legacyData)
 
-	legacy := onionEncrypt(AMMAG, &o.sharedSecret, legacyData)
-	attrError := onionEncrypt(AMMAG_EXT, &o.sharedSecret, attrData)
+	legacy := onionEncrypt(Ammag, &o.sharedSecret, legacyData)
+	attrError := onionEncrypt(AmmagExt, &o.sharedSecret, attrData)
 
 	return legacy, attrError, nil
 }
 
+// shiftHmacsRight shifts all hmacs one position to the right, making room for
+// new hmacs at the front for the current hop.
 func (o *OnionErrorEncrypter) shiftHmacsRight(hmacs []byte) {
-	totalHmacs := (o.hopCount * (o.hopCount + 1)) / 2
+	total := o.totalHmacs()
 
 	// Work from right to left to avoid overwriting data that is still
 	// needed.
-	srcIdx := totalHmacs - 2
-	destIdx := totalHmacs - 1
+	srcIdx := total - 2
+	destIdx := total - 1
 
 	// The variable copyLen contains the number of hmacs to copy for the
 	// current hop.
@@ -669,8 +663,9 @@ func (o *OnionErrorEncrypter) addHmacs(data []byte, message []byte) {
 	}
 }
 
+// initializePayload creates a new attribution data block with the given hold
+// time set as the initial payload.
 func (o *OnionErrorEncrypter) initializePayload(holdTime uint32) []byte {
-
 	// Add space for payloads and hmacs.
 	data := make([]byte, o.hmacsAndPayloadsLen())
 
@@ -682,6 +677,8 @@ func (o *OnionErrorEncrypter) initializePayload(holdTime uint32) []byte {
 	return data
 }
 
+// addIntermediatePayload shifts existing payloads and prepends the given hold
+// time as the new first payload entry.
 func (o *OnionErrorEncrypter) addIntermediatePayload(data []byte,
 	holdTime uint32) {
 
@@ -694,10 +691,13 @@ func (o *OnionErrorEncrypter) addIntermediatePayload(data []byte,
 	addPayload(payloads, holdTime)
 }
 
+// shiftPayloadsRight shifts all payloads one position to the right, making
+// room for a new payload at the front.
 func (o *OnionErrorEncrypter) shiftPayloadsRight(payloads []byte) {
 	copy(payloads[o.payloadLen():], payloads)
 }
 
+// addPayload writes a hold time value into the first payload slot.
 func addPayload(payloads []byte, holdTime uint32) {
 	binary.BigEndian.PutUint32(payloads, holdTime)
 }
