@@ -9,29 +9,19 @@ import (
 // OnionErrorEncrypter is a struct that's used to implement onion error
 // encryption as defined within BOLT0004.
 type OnionErrorEncrypter struct {
+	*AttrErrorStructure
 	sharedSecret Hash256
 }
 
-// NewOnionErrorEncrypter creates new instance of the onion encrypter backed by
-// the passed router, with encryption to be done using the passed ephemeralKey.
-func NewOnionErrorEncrypter(router *Router, ephemeralKey *btcec.PublicKey,
-	opts ...ProcessOnionOpt) (*OnionErrorEncrypter, error) {
-
-	cfg := &processOnionCfg{}
-	for _, o := range opts {
-		o(cfg)
-	}
-
-	sharedSecret, err := router.generateSharedSecret(
-		ephemeralKey, cfg.blindingPoint,
-	)
-	if err != nil {
-		return nil, err
-	}
+// NewOnionErrorEncrypter creates a new encrypter with the provided shared
+// secret and attributable error structure.
+func NewOnionErrorEncrypter(sharedSecret Hash256,
+	structure *AttrErrorStructure) *OnionErrorEncrypter {
 
 	return &OnionErrorEncrypter{
-		sharedSecret: sharedSecret,
-	}, nil
+		sharedSecret:       sharedSecret,
+		AttrErrorStructure: structure,
+	}
 }
 
 // Encode writes the encrypter's shared secret to the provided io.Writer.
@@ -121,12 +111,17 @@ func (c *Circuit) Encode(w io.Writer) error {
 // OnionErrorDecrypter is a struct that's used to decrypt onion errors in
 // response to failed HTLC routing attempts according to BOLT#4.
 type OnionErrorDecrypter struct {
+	*AttrErrorStructure
 	circuit *Circuit
 }
 
-// NewOnionErrorDecrypter creates new instance of onion decrypter.
-func NewOnionErrorDecrypter(circuit *Circuit) *OnionErrorDecrypter {
+// NewOnionErrorDecrypter creates new instance of onion decrypter with the
+// provided circuit and attributable error structure.
+func NewOnionErrorDecrypter(circuit *Circuit,
+	structure *AttrErrorStructure) *OnionErrorDecrypter {
+
 	return &OnionErrorDecrypter{
-		circuit: circuit,
+		circuit:            circuit,
+		AttrErrorStructure: structure,
 	}
 }

@@ -53,4 +53,8 @@ var (
 
 	// ErrIOReadFull is returned when an io read full operation fails.
 	ErrIOReadFull = errors.New("io read full error")
+
+	// ErrInvalidAttrStructure is an error that signals that the provided
+	// attribution data have an invalid length.
+	ErrInvalidAttrStructure = errors.New("invalid attribution data length")
 )
