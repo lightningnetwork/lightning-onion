@@ -8,7 +8,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // PayloadType denotes the type of the payload included in the onion packet.
