@@ -14,7 +14,7 @@ XARGS := xargs -L 1
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
-GO_VERSION = 1.24.6
+GO_VERSION = 1.25.11
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
