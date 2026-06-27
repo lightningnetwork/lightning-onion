@@ -206,7 +206,10 @@ func blindBaseElement(blindingFactor btcec.ModNScalar) *btcec.PublicKey {
 
 // chacha20polyEncrypt initialises the ChaCha20Poly1305 algorithm with the given
 // key and uses it to encrypt the passed message. This uses an all-zero nonce as
-// required by the route-blinding spec.
+// required by the route-blinding spec. The function avoids heap allocation by
+// reusing the existing backing array.
+//
+// Warning: the function modifies plainTxt
 func chacha20polyEncrypt(key, plainTxt []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
@@ -219,7 +222,10 @@ func chacha20polyEncrypt(key, plainTxt []byte) ([]byte, error) {
 
 // chacha20polyDecrypt initialises the ChaCha20Poly1305 algorithm with the given
 // key and uses it to decrypt the passed cipher text. This uses an all-zero
-// nonce as required by the route-blinding spec.
+// nonce as required by the route-blinding spec. The function avoids heap
+// allocation by reusing the existing backing array.
+//
+// Warning: the function modifies cipherTxt
 func chacha20polyDecrypt(key, cipherTxt []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
